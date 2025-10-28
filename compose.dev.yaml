@@ -1,0 +1,48 @@
+services:
+
+  # frontend:
+  #   image: pw/testrepo:frontend1.0
+  #   build:
+  #     context: .
+  #     dockerfile: frontend/dashboard/Dockerfile
+  #     platforms:
+  #       - linux/amd64
+  #   environment:
+  #     TEST: test
+  #   ports:
+  #       - "8081:80"
+
+  # backend:
+  #   image: pw/testrepo:backend1.0
+  #   build:
+  #     context: .
+  #     dockerfile: backend/app/Dockerfile
+  #     platforms:
+  #       - linux/amd64
+  #   environment:
+  #     TEST: test
+
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: mydb
+    volumes:
+      - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8080:80"
+    depends_on:
+      - db
+
+#networks:
+  
+volumes:
+  pgdata:
