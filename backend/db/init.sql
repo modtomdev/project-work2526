@@ -23,11 +23,11 @@ CREATE TABLE IF NOT EXISTS rail_blocks (
 );
 
 CREATE TABLE IF NOT EXISTS block_sections (
-    block_section_id SERIAL PRIMARY KEY,
     block_id INTEGER NOT NULL REFERENCES rail_blocks(block_id) ON DELETE CASCADE,
-    section_id INTEGER NOT NULL REFERENCES sections(section_id) ON DELETE CASCADE,
-    UNIQUE(block_id, section_id)
+    section_id INTEGER NOT NULL REFERENCES sections(section_id) ON DELETE CASCADE UNIQUE,
+    PRIMARY KEY (block_id, section_id)
 );
+
 
 CREATE TABLE IF NOT EXISTS train_types (
     train_type_id SERIAL PRIMARY KEY,
