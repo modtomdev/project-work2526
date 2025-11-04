@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS wagon_positions (
 CREATE TABLE IF NOT EXISTS stops (
     stop_id SERIAL PRIMARY KEY,
     stop_name VARCHAR(100) UNIQUE NOT NULL,
-    section_id INTEGER REFERENCES sections(section_id),
+    section_id INTEGER UNIQUE REFERENCES sections(section_id),
     platform_number INTEGER -- 1,2,3,4 for standard platform 5,6 for dead ends
 );
 
