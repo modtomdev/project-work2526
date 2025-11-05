@@ -28,12 +28,11 @@ CREATE TABLE IF NOT EXISTS block_sections (
     PRIMARY KEY (block_id, section_id)
 );
 
-
 CREATE TABLE IF NOT EXISTS train_types (
     train_type_id SERIAL PRIMARY KEY,
     type_name VARCHAR(50) UNIQUE NOT NULL,
     priority_index INTEGER UNIQUE NOT NULL,
-    cruising_speed FLOAT NOT NULL DEFAULT 0.5 -- sections/min, remember section vs db section
+    cruising_speed FLOAT NOT NULL DEFAULT 0.5 -- sections/min, remember section vs db section.
 );
 
 CREATE TABLE IF NOT EXISTS trains (
@@ -41,7 +40,7 @@ CREATE TABLE IF NOT EXISTS trains (
     train_code VARCHAR(100) UNIQUE NOT NULL,
     train_type_id INTEGER NOT NULL REFERENCES train_types(train_type_id),
     current_section_id INTEGER REFERENCES sections(section_id),
-    direction SMALLINT DEFAULT 1 CHECK (direction IN (-1, 1)),
+    direction SMALLINT DEFAULT 1 CHECK (direction IN (-1, 1)), -- useful to determine spawn location in train_schedules
     requires_maintenance BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -58,7 +57,7 @@ CREATE TABLE IF NOT EXISTS wagon_positions (
     position_id SERIAL PRIMARY KEY,
     wagon_id INTEGER UNIQUE REFERENCES wagons(wagon_id) ON DELETE CASCADE,
     section_id INTEGER REFERENCES sections(section_id),
-    position_offset FLOAT NOT NULL, -- can be useful for smooth rendering
+    position_offset FLOAT NOT NULL, -- can be useful for smooth rendering.
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -66,18 +65,16 @@ CREATE TABLE IF NOT EXISTS stops (
     stop_id SERIAL PRIMARY KEY,
     stop_name VARCHAR(100) UNIQUE NOT NULL,
     section_id INTEGER UNIQUE REFERENCES sections(section_id),
-    platform_number INTEGER -- 1,2,3,4 for standard platform 5,6 for dead ends
+    platform_number INTEGER -- 1,2,3,4 for standard platform 5,6 for dead ends.
 );
 
 CREATE TABLE IF NOT EXISTS train_schedules (
     schedule_id SERIAL PRIMARY KEY,
     train_id INTEGER NOT NULL REFERENCES trains(train_id) ON DELETE CASCADE,
     stop_id INTEGER NOT NULL REFERENCES stops(stop_id),
-    scheduled_arrival_time TIME NOT NULL,
-    scheduled_departure_time TIME NOT NULL,
-    UNIQUE(train_id, stop_id),
-    UNIQUE(train_id, sequence_index)
-);
+    scheduled_arrival_time TIMESTAMP NOT NULL,
+    scheduled_departure_time TIMESTAMP NOT NULL
+); -- if scheduled_arrival_time == scheduled_departure_time, the train is only transiting. stop_id can be ignored by the code in that case.
 
 CREATE OR REPLACE VIEW train_delays_view AS
 SELECT
@@ -87,9 +84,9 @@ SELECT
     tt.priority_index,
     ts.stop_id,
     st.stop_name,
-    EXTRACT(EPOCH FROM (CURRENT_TIME - ts.scheduled_arrival_time))::INT AS delay_seconds,
+    EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - ts.scheduled_arrival_time))::INT AS delay_seconds,
     CASE
-        WHEN CURRENT_TIME > ts.scheduled_arrival_time THEN 'DELAYED'
+        WHEN CURRENT_TIMESTAMP > ts.scheduled_arrival_time THEN 'DELAYED'
         ELSE 'ON_TIME'
     END AS status
 FROM trains t
