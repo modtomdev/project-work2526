@@ -19,13 +19,8 @@ CREATE INDEX IF NOT EXISTS idx_section_connections_from_to
 CREATE TABLE IF NOT EXISTS rail_blocks (
     block_id SERIAL PRIMARY KEY,
     block_name VARCHAR(100) UNIQUE NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS block_sections (
-    block_id INTEGER NOT NULL REFERENCES rail_blocks(block_id) ON DELETE CASCADE,
     section_id INTEGER NOT NULL REFERENCES sections(section_id) ON DELETE CASCADE UNIQUE,
-    PRIMARY KEY (block_id, section_id)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS train_types (
@@ -73,7 +68,8 @@ CREATE TABLE IF NOT EXISTS train_schedules (
     train_id INTEGER NOT NULL REFERENCES trains(train_id) ON DELETE CASCADE,
     stop_id INTEGER NOT NULL REFERENCES stops(stop_id),
     scheduled_arrival_time TIMESTAMP NOT NULL,
-    scheduled_departure_time TIMESTAMP NOT NULL
+    scheduled_departure_time TIMESTAMP NOT NULL,
+    CHECK(scheduled_departure_time >= scheduled_arrival_time)
 ); -- if scheduled_arrival_time == scheduled_departure_time, the train is only transiting. stop_id can be ignored by the code in that case.
 
 CREATE OR REPLACE VIEW train_delays_view AS
@@ -102,7 +98,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER update_timestamp_generic
-    BEFORE UPDATE ON sections, trains
+CREATE TRIGGER update_timestamp_sections
+    BEFORE UPDATE ON sections
+    FOR EACH ROW
+    EXECUTE FUNCTION update_timestamp();
+
+CREATE TRIGGER update_timestamp_trains
+    BEFORE UPDATE ON trains
     FOR EACH ROW
     EXECUTE FUNCTION update_timestamp();
