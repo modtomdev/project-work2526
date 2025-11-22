@@ -4,7 +4,7 @@ services:
   #   image: pw/testrepo:frontend1.0
   #   build:
   #     context: .
-  #     dockerfile: frontend/dashboard/Dockerfile
+  #     dockerfile: frontend/Dockerfile
   #     platforms:
   #       - linux/amd64
   #   environment:
