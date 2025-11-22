@@ -2,6 +2,9 @@ import asyncio
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from typing import List, Dict, Optional
+from fastapi import UploadFile, File
+import csv
+from io import StringIO
 
 from models import Train, Section, Connection, TrainType, SwitchSetPayload
 from simulation import SimulationEngine
@@ -58,13 +61,18 @@ async def simulation_loop(tick_rate_hz: int = 10, sim_speed_multiplier: int = 5)
 
             # 2. Ottieni lo stato aggiornato
             trains_state = await engine.get_all_trains_state()
+            wagons_state = await engine.get_wagons_state()
             
             # 3. Serializza i dati per il JSON
-            # (Pydantic v2 usa .model_dump() invece di .dict())
             trains_data = [t.model_dump() for t in trains_state]
+            wagons_data = [w.model_dump() for w in wagons_state]
 
             # 4. Invia via WebSocket
-            await manager.broadcast_json({"type": "train_update", "trains": trains_data})
+            await manager.broadcast_json({
+                "type": "train_update",
+                "trains": trains_data,
+                "wagons": wagons_data
+            })
             
             # 5. Attendi il prossimo tick
             await asyncio.sleep(real_dt)
@@ -84,34 +92,59 @@ async def on_startup():
     """
     global engine
     
-    # --- Dati Fittizi per la Simulazione ---
+    # --- Dati Fittizi per la Simulazione (mappa semplice con 2 ingressi e 4 piattaforme centrali) ---
     sections = [
-        Section(section_id=1),
-        Section(section_id=2, is_switch=True), # Scambio
-        Section(section_id=3), # Binario A
-        Section(section_id=4), # Binario B
-        Section(section_id=5), # Sezione comune
+        Section(section_id=1, x=0, y=2),  # left_in
+        Section(section_id=2, is_switch=True, x=1, y=2),  # left_switch
+        Section(section_id=3, x=2, y=1),  # left_platform_A
+        Section(section_id=4, x=2, y=3),  # left_platform_B
+        Section(section_id=5, is_switch=True, x=3, y=2),  # merge / entry to center (switch)
+        Section(section_id=6, x=4, y=0),  # center platform 1
+        Section(section_id=7, x=4, y=1),  # center platform 2
+        Section(section_id=8, x=4, y=2),  # center platform 3
+        Section(section_id=9, x=4, y=3),  # center platform 4
+        Section(section_id=10, is_switch=True, x=5, y=2), # right_switch
+        Section(section_id=11, x=6, y=1), # right_platform_A
+        Section(section_id=12, x=6, y=3), # right_platform_B
+        Section(section_id=13, x=7, y=2), # right_out
     ]
-    
+
     connections = [
         Connection(from_section_id=1, to_section_id=2, is_active=True),
-        Connection(from_section_id=2, to_section_id=3, is_active=True), # Default: Binario A
-        Connection(from_section_id=2, to_section_id=4, is_active=False), # Alternativa: Binario B
-        Connection(from_section_id=3, to_section_id=5, is_active=True), # Merge
-        Connection(from_section_id=4, to_section_id=5, is_active=True), # Merge
+        Connection(from_section_id=2, to_section_id=3, is_active=True),
+        Connection(from_section_id=2, to_section_id=4, is_active=False),
+        Connection(from_section_id=3, to_section_id=5, is_active=True),
+        Connection(from_section_id=4, to_section_id=5, is_active=True),
+
+        # From merge (5) to center platforms (this section behaves as a switch)
+        Connection(from_section_id=5, to_section_id=6, is_active=True),
+        Connection(from_section_id=5, to_section_id=7, is_active=False),
+        Connection(from_section_id=5, to_section_id=8, is_active=False),
+        Connection(from_section_id=5, to_section_id=9, is_active=False),
+
+        # Each center platform goes to right switch
+        Connection(from_section_id=6, to_section_id=10, is_active=True),
+        Connection(from_section_id=7, to_section_id=10, is_active=True),
+        Connection(from_section_id=8, to_section_id=10, is_active=True),
+        Connection(from_section_id=9, to_section_id=10, is_active=True),
+
+        # Right side branches
+        Connection(from_section_id=10, to_section_id=11, is_active=True),
+        Connection(from_section_id=10, to_section_id=12, is_active=False),
+        Connection(from_section_id=11, to_section_id=13, is_active=True),
+        Connection(from_section_id=12, to_section_id=13, is_active=True),
     ]
-    
+
     train_types = [
-        TrainType(train_type_id=1, type_name="Regionale", priority_index=2, cruising_speed=5.0), # 5 sezioni/min
-        TrainType(train_type_id=2, type_name="Alta Velocità", priority_index=1, cruising_speed=10.0), # 10 sezioni/min
+        TrainType(train_type_id=1, type_name="Regionale", priority_index=2, cruising_speed=5.0), # sezioni/min
+        TrainType(train_type_id=2, type_name="Alta Velocità", priority_index=1, cruising_speed=10.0),
     ]
-    
+
     trains = [
-        Train(train_id=101, train_code="R_101", train_type_id=1, current_section_id=1, status='Moving'),
-        Train(train_id=201, train_code="AV_201", train_type_id=2, current_section_id=1, position_offset=0.2, status='Moving'),
+        Train(train_id=101, train_code="R_101", train_type_id=1, current_section_id=1, num_wagons=3, status='Moving'),
+        Train(train_id=201, train_code="AV_201", train_type_id=2, current_section_id=1, position_offset=0.2, num_wagons=5, status='Moving'),
     ]
-    # --- Fine Dati Fittizi ---
-    
+
     # Inizializza il motore
     engine = SimulationEngine(sections, connections, train_types, trains)
     
@@ -119,6 +152,61 @@ async def on_startup():
     print("Avvio del loop di simulazione in background...")
     asyncio.create_task(simulation_loop(tick_rate_hz=10, sim_speed_multiplier=5))
 
+    # --- Nuovi Endpoint: Sezioni, Connessioni, Caricamento CSV ---
+@app.get("/api/v1/sections", tags=["Network"])
+async def api_get_sections():
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Simulatore non pronto")
+    return await engine.get_sections_state()
+
+
+@app.get("/api/v1/connections", tags=["Network"])
+async def api_get_connections():
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Simulatore non pronto")
+    return await engine.get_connections_state()
+
+
+@app.get("/api/v1/wagons", tags=["Wagons"])
+async def api_get_wagons():
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Simulatore non pronto")
+    return await engine.get_wagons_state()
+
+
+@app.post("/api/v1/load_trains", tags=["Admin"])
+async def api_load_trains(file: UploadFile = File(...)):
+    """Carica un CSV con treni e li aggiunge alla simulazione.
+
+    CSV columns expected: train_id,train_code,train_type_id,current_section_id,position_offset,status
+    """
+    if engine is None:
+        raise HTTPException(status_code=503, detail="Simulatore non pronto")
+
+    content = await file.read()
+    try:
+        text = content.decode('utf-8')
+    except Exception:
+        raise HTTPException(status_code=400, detail="File non decodificabile come UTF-8")
+
+    reader = csv.DictReader(StringIO(text))
+    new_trains = []
+    for row in reader:
+        try:
+            new_trains.append(Train(
+                train_id=int(row.get('train_id')),
+                train_code=row.get('train_code'),
+                train_type_id=int(row.get('train_type_id')),
+                current_section_id=int(row.get('current_section_id')) if row.get('current_section_id') else None,
+                position_offset=float(row.get('position_offset') or 0.0),
+                num_wagons=int(row.get('num_wagons') or 1),
+                status=row.get('status') or 'Scheduled'
+            ))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Errore riga CSV: {e}")
+
+    await engine.add_trains(new_trains)
+    return {"status": "ok", "added": len(new_trains)}
 
 # --- Endpoints API REST ---
 

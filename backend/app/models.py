@@ -7,7 +7,10 @@ class Section(BaseModel):
     section_id: int
     is_switch: bool = False
     # Campo di stato per la simulazione, non nel DB originale
-    is_occupied: bool = False 
+    is_occupied: bool = False
+    # Coordinate opzionali per il rendering frontend (non persistite nel DB)
+    x: Optional[int] = None
+    y: Optional[int] = None
 
 class Connection(BaseModel):
     """Rappresenta una connessione direzionale tra due sezioni."""
@@ -38,6 +41,15 @@ class Train(BaseModel):
     current_section_id: int
     position_offset: float = 0.0 # Posizione all'interno della sezione (0.0 a 1.0)
     status: str = 'Scheduled' # Es: 'Moving', 'Stopped', 'Scheduled'
+    num_wagons: int = 1  # Numero di vagoni (1-15)
+
+class Wagon(BaseModel):
+    """Rappresenta un singolo vagone all'interno di un treno."""
+    wagon_id: int  # unique ID across all wagons
+    train_id: int
+    wagon_index: int  # 0 = primo vagone (locomotiva), 1-14 = vagoni
+    section_id: Optional[int] = None  # sezione dove si trova il vagone
+    position_offset: float = 0.0  # posizione relativa nella sezione (0.0-1.0)
 
 class ScheduleEntry(BaseModel):
     """Rappresenta una fermata programmata per un treno."""

@@ -1,7 +1,7 @@
 import asyncio
 from typing import Dict, List, Optional
 from models import (
-    Section, Connection, TrainType, Train, ScheduleEntry, RailBlock
+    Section, Connection, TrainType, Train, Wagon, ScheduleEntry, RailBlock
 )
 from datetime import datetime, timedelta
 
@@ -36,15 +36,49 @@ class SimulationEngine:
                 self.network[conn.from_section_id] = []
             self.network[conn.from_section_id].append(conn)
 
+        # Inizializza i vagoni per ogni treno
+        self.wagons: Dict[int, Wagon] = {}  # wagon_id -> Wagon
+        self.train_wagons: Dict[int, List[int]] = {}  # train_id -> [wagon_ids]
+        self._initialize_wagons()
+
         # Inizializza l'occupazione delle sezioni
         self._initialize_occupancy()
 
         # Lock per la concorrenza tra il tick e le chiamate API
         self.lock = asyncio.Lock()
 
+    def _initialize_wagons(self):
+        """Crea vagoni per ogni treno. Ogni treno ha num_wagons vagoni."""
+        wagon_id_counter = 1000
+        for train in self.trains.values():
+            num_wagons = getattr(train, 'num_wagons', 1)
+            num_wagons = max(1, min(15, num_wagons))  # Clamp tra 1 e 15
+            
+            self.train_wagons[train.train_id] = []
+            for wagon_idx in range(num_wagons):
+                wagon = Wagon(
+                    wagon_id=wagon_id_counter,
+                    train_id=train.train_id,
+                    wagon_index=wagon_idx,
+                    section_id=train.current_section_id,
+                    position_offset=train.position_offset
+                )
+                self.wagons[wagon_id_counter] = wagon
+                self.train_wagons[train.train_id].append(wagon_id_counter)
+                wagon_id_counter += 1
+
     def _initialize_occupancy(self):
-        """Imposta lo stato 'is_occupied' iniziale per le sezioni dei treni."""
-        occupied_sections = {t.current_section_id for t in self.trains.values()}
+        """Imposta lo stato 'is_occupied' iniziale basato su wagons."""
+        # Reset occupazione
+        for section in self.sections.values():
+            section.is_occupied = False
+        
+        # Marca le sezioni come occupate se contengono almeno un vagone
+        occupied_sections = set()
+        for wagon in self.wagons.values():
+            if wagon.section_id:
+                occupied_sections.add(wagon.section_id)
+        
         for section_id in occupied_sections:
             if section_id in self.sections:
                 self.sections[section_id].is_occupied = True
@@ -53,50 +87,125 @@ class SimulationEngine:
         """
         Avanza la simulazione di un intervallo 'dt' (in secondi).
         Questo è il ciclo principale del motore.
+        Sposta i vagoni individuali invece che i treni interi.
         """
         async with self.lock:
             for train in self.trains.values():
                 if train.status != 'Moving':
-                    continue # Questo treno non si sta muovendo
+                    continue
 
                 train_type = self.train_types[train.train_type_id]
-                
-                # Calcola la velocità in sezioni/secondo
                 speed_sec_per_sec = train_type.cruising_speed / 60.0
-                
-                # Calcola la distanza percorsa in questo tick (come frazione di sezione)
                 distance_moved = speed_sec_per_sec * dt
-                train.position_offset += distance_moved
 
-                # --- Logica di Transizione di Sezione ---
-                if train.position_offset >= 1.0:
-                    current_section = self.sections[train.current_section_id]
-                    
-                    # 1. Trova la prossima sezione in base agli scambi
-                    next_section = self._find_next_active_section(current_section.section_id)
-
-                    if not next_section:
-                        # Fine del binario o scambio non impostato
-                        train.status = 'Stopped'
-                        train.position_offset = 0.99 # Fermati alla fine
+                # Sposta i vagoni in ordine inverso (dalla coda alla testa)
+                wagon_ids = self.train_wagons.get(train.train_id, [])
+                for wagon_id in reversed(wagon_ids):
+                    wagon = self.wagons[wagon_id]
+                    if wagon.section_id is None:
                         continue
 
-                    # 2. Logica di Sicurezza (Controllo Blocco/Occupazione)
-                    if next_section.is_occupied:
-                        # Collisione imminente! Fermo il treno.
-                        train.status = 'Stopped'
-                        train.position_offset = 0.99 # Fermati prima della sezione
-                    else:
+                    wagon.position_offset += distance_moved
+
+                    # Logica di transizione tra sezioni
+                    while wagon.position_offset >= 1.0:
+                        current_section = self.sections.get(wagon.section_id)
+                        if not current_section:
+                            break
+
+                        # Trova prossima sezione
+                        next_section = self._find_next_active_section(current_section.section_id)
+
+                        if not next_section:
+                            # Fine del binario
+                            wagon.position_offset = 0.99
+                            train.status = 'Stopped'
+                            break
+
+                        # Controllo occupazione
+                        if next_section.is_occupied:
+                            wagon.position_offset = 0.99
+                            train.status = 'Stopped'
+                            break
+
                         # Transizione approvata
-                        current_section.is_occupied = False # Libera la vecchia sezione
-                        next_section.is_occupied = True    # Occupa la nuova
-                        
-                        train.current_section_id = next_section.section_id
-                        # Riporta l'offset rimanente
-                        train.position_offset -= 1.0 
-                        
-            # TODO: Gestire la logica degli orari (ScheduleEntry)
-            # (Es. cambiare stato da 'Scheduled' a 'Moving' o da 'Moving' a 'Stopped')
+                        wagon.position_offset -= 1.0
+                        wagon.section_id = next_section.section_id
+
+                # Aggiorna lo stato dei treni e le occupazioni
+                self._update_section_occupancy()
+                # Aggiorna la posizione del treno alla posizione del primo vagone
+                if wagon_ids:
+                    first_wagon = self.wagons[wagon_ids[0]]
+                    train.current_section_id = first_wagon.section_id or train.current_section_id
+                    train.position_offset = first_wagon.position_offset
+
+    def _update_section_occupancy(self):
+        """Aggiorna lo stato is_occupied di tutte le sezioni."""
+        for section in self.sections.values():
+            section.is_occupied = False
+        
+        for wagon in self.wagons.values():
+            if wagon.section_id and wagon.section_id in self.sections:
+                self.sections[wagon.section_id].is_occupied = True
+
+    async def add_trains(self, trains: List[Train]):
+        """Aggiunge una lista di treni al motore e crea i loro vagoni."""
+        async with self.lock:
+            wagon_id_counter = max([w.wagon_id for w in self.wagons.values()] or [1000], default=1000) + 1
+            
+            for t in trains:
+                if t.train_id in self.trains:
+                    continue
+                self.trains[t.train_id] = t
+                
+                # Crea vagoni per questo treno
+                num_wagons = max(1, min(15, getattr(t, 'num_wagons', 1)))
+                self.train_wagons[t.train_id] = []
+                
+                for wagon_idx in range(num_wagons):
+                    wagon = Wagon(
+                        wagon_id=wagon_id_counter,
+                        train_id=t.train_id,
+                        wagon_index=wagon_idx,
+                        section_id=t.current_section_id,
+                        position_offset=t.position_offset
+                    )
+                    self.wagons[wagon_id_counter] = wagon
+                    self.train_wagons[t.train_id].append(wagon_id_counter)
+                    wagon_id_counter += 1
+                
+                self._update_section_occupancy()
+
+    async def get_sections_state(self) -> List[Section]:
+        """Ritorna lo stato di tutte le sezioni (occupazione, coords)."""
+        async with self.lock:
+            return [s.model_copy() for s in self.sections.values()]
+
+    async def get_connections_state(self) -> List[Connection]:
+        """Ritorna tutte le connessioni del grafo con il loro stato is_active."""
+        async with self.lock:
+            conns: List[Connection] = []
+            for out_list in self.network.values():
+                for c in out_list:
+                    conns.append(c)
+            return [c.model_copy() for c in conns]
+
+    async def get_blocks_state(self) -> List[RailBlock]:
+        """Ritorna una lista di blocchi (se presenti)."""
+        # Questo motore mantiene solo mapping se passato in init
+        # Ricostruisce oggetti RailBlock dalle mappe disponibili
+        async with self.lock:
+            blocks: List[RailBlock] = []
+            # self.section_to_block maps section_id -> block_id
+            for section_id, block_id in getattr(self, 'section_to_block', {}).items():
+                blocks.append(RailBlock(block_id=block_id, block_name=f"block_{block_id}", section_id=section_id))
+            return blocks
+
+    async def get_wagons_state(self) -> List[Wagon]:
+        """Ritorna lo stato di tutti i vagoni."""
+        async with self.lock:
+            return [w.model_copy() for w in self.wagons.values()]
 
     def _find_next_active_section(self, from_section_id: int) -> Optional[Section]:
         """
