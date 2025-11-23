@@ -1,3 +1,5 @@
+# Classic approach:
+
 # Terminal 1: Backend
 python main.py
 
@@ -5,3 +7,6 @@ python main.py
 npm run dev
 
 # Open browser: http://localhost:5173
+
+# Docker approach:
+docker compose up -d --build
