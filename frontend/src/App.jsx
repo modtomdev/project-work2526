@@ -4,17 +4,21 @@ const WS_URL = 'ws://localhost:8000/ws/traffic'
 const API_BASE = 'http://localhost:8000/api/v1'
 
 function scalePos(s) {
-  // simple scale factor for coords
   const factor = 80
-  // If coords are missing or not numbers, fallback to a computed grid
-  const hasX = typeof s.x === 'number'
-  const hasY = typeof s.y === 'number'
+  // FIX: Cast to Number explicitly before checking
+  const x = Number(s.x)
+  const y = Number(s.y)
+  
+  // Check for NaN (Not a Number) instead of type
+  const hasX = !isNaN(x)
+  const hasY = !isNaN(y)
+
   if (!hasX || !hasY) {
     const fallbackLeft = 20 * (s.section_id || 0) + 50
     const fallbackTop = 50
     return { left: fallbackLeft, top: fallbackTop }
   }
-  return { left: s.x * factor + 50, top: s.y * factor + 50 }
+  return { left: x * factor + 50, top: y * factor + 50 }
 }
 
 export default function App() {
@@ -68,8 +72,11 @@ export default function App() {
 
         {wagons.map(w => {
           // draw each wagon at its section coords
-          const sec = sections.find(s => s.section_id === w.section_id)
-          if (!sec) return null
+          const sec = sections.find(s => String(s.section_id) === String(w.section_id))
+          if (!sec) {
+            console.warn(`Wagon ${w.wagon_id} on unknown section ${w.section_id}`)
+            return null
+          }
           const pos = (sec && (typeof sec.x === 'number' && typeof sec.y === 'number')) ? scalePos(sec) : { left: 20 * sec.section_id + 50, top: 50 }
           // Space wagons vertically or offset them slightly
           const wagonOffsetPx = (w.position_offset || 0) * 30
