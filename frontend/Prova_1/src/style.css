@@ -15,3 +15,18 @@ body { font-family: sans-serif; margin: 12px; }
 .dot.wagon-car { background:#273c75; border:1px solid #1a1a1a }
 .train-list { margin-top: 12px; }
 .train-item { padding: 6px; background: #f0f0f0; margin: 4px 0; border-radius: 3px; font-size: 13px }
+
+
+.canvas{
+    height: fit-content;
+    padding: 0;
+}
+
+.canvas > img{
+    width: 100%;
+    height: auto;
+}
+
+details{
+    max-height: fit-content !important;
+}

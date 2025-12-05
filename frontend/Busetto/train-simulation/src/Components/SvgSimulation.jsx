@@ -20,13 +20,13 @@ export default function SvgSimulation(){
                 {railsElement}
                 {changeElement}
                 
-                <path 
+                {/* <path 
                     id="binario_fantasma_1"
                     d="M 30 100 L 870 100" 
                     fill="none" 
                     stroke="red"     // Mettilo ROSSO per vederlo mentre sviluppi (debug)
                     strokeWidth="2"  // Poi lo metterai "transparent" o rimuoverai stroke
-                />
+                /> */}
 
 
                 

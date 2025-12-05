@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react'
+import railImg from './assets/binari.jpeg'
 
 const WS_URL = 'ws://localhost:8000/ws/traffic'
 const API_BASE = 'http://localhost:8000/api/v1'
@@ -60,7 +61,8 @@ export default function App() {
         <div>Wagons: {wagons.length}</div>
       </div>
       <div className="canvas">
-        {sections.map(s => (
+        <img src={railImg} alt="" />
+        {/* {sections.map(s => (
           <div
             key={s.section_id}
             className={`section ${s.is_switch ? 'switch' : ''} ${s.is_occupied ? 'occupied' : ''}`}
@@ -93,7 +95,7 @@ export default function App() {
               title={`Wagon ${w.wagon_id} (train ${w.train_id}, idx ${w.wagon_index})`}
             >W{w.wagon_index}</div>
           )
-        })}
+        })} */}
       </div>
 
       <div className="legend">
