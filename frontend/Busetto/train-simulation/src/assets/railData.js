@@ -18,22 +18,22 @@ function createRailsData(start_x, start_y, rotate, type, total_sections, key_sta
 
 const railsInfo = [
     {
-        id: 'r1',
+        id: 'r0',
         x1: 30,
         y1: 100
     },
     {
-        id: 'r2',
+        id: 'r1',
         x1: 30,
         y1: 130,
     },
     {
-        id: 'r3',
+        id: 'r2',
         x1: 30+9*20,
         y1: 160
     },
     {
-        id: 'r4',
+        id: 'r3',
         x1: 30+20*20,
         y1: 190
     }

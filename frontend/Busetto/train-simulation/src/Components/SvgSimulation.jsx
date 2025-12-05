@@ -19,6 +19,7 @@ export default function SvgSimulation(){
             <svg className='tavolozza' width={900} height={300}>
                 {railsElement}
                 {changeElement}
+                
                 <path 
                     id="binario_fantasma_1"
                     d="M 30 100 L 870 100" 
