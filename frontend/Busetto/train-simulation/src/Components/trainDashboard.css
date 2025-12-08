@@ -1,0 +1,102 @@
+/* TrainDashboard.css */
+
+/* --- RESET GLOBALE PER FULL SCREEN --- */
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden; 
+  background-color: #0f172a; 
+}
+
+/* --- OTTIMIZZAZIONE GPU & MOVIMENTO TRENI --- */
+.train-group {
+  will-change: transform;
+  transition: transform 50ms linear, opacity 0.3s ease-out, filter 0.2s ease;
+  z-index: 10;
+  cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.train-group rect,
+.train-group path {
+  shape-rendering: geometricPrecision; 
+}
+
+.train-group:hover {
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.4)) brightness(1.2);
+  z-index: 20; 
+}
+
+.animate-spin-slow {
+  animation: spin 8s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* --- SCROLLBAR "GLASS" MODERN --- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #475569 transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(71, 85, 105, 0.4); 
+  border-radius: 99px;
+  border: 1px solid rgba(255, 255, 255, 0.1); 
+  backdrop-filter: blur(4px);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(99, 102, 241, 0.6); 
+}
+
+/* --- SLIDER CYBERPUNK --- */
+input[type=range] {
+  appearance: none;
+  background: transparent;
+}
+
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+  margin-top: -6px; 
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.8); 
+  transition: transform 0.1s ease;
+}
+
+input[type=range]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+input[type=range]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 4px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+}
+
+/* --- TRANSIZIONI UI GLOBALI --- */
+body, .card, .btn, .badge {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}

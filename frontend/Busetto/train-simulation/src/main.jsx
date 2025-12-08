@@ -6,7 +6,7 @@ import SvgSimulation from './Components/svgSimulation.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    {/* <TrainDashboard /> */}
-    <SvgSimulation />
+    {<TrainDashboard />}
+    {/* <SvgSimulation /> */}
   </StrictMode>,
 )
