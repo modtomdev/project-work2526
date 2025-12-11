@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 
 // Il componente Vagone riceve i dati del binario corrente e la durata dell'animazione.
-export const Wagon = ({ pathData, x, y, duration = 3000 }) => {
+export const Wagon = ({ pathData, x, y, duration = 3000, color = "red" }) => {
     // Stato per la percentuale di percorrenza (0% o 100%)
     const [progress, setProgress] = useState(0); 
     // Stato per attivare/disattivare la transizione (per il "teletrasporto" iniziale)
@@ -30,7 +30,7 @@ export const Wagon = ({ pathData, x, y, duration = 3000 }) => {
             <rect 
                 width={20}
                 height={10}
-                fill="red"
+                fill={color}
                 rx={4}
                 x={-10} // Metà larghezza per centrare sulla linea
                 y={-5}  // Metà altezza per centrare sulla linea
@@ -47,6 +47,7 @@ export const Wagon = ({ pathData, x, y, duration = 3000 }) => {
                     transition: isMoving 
                                 ? `offset-distance ${duration}ms linear` 
                                 : 'none'
+
                 }}
             />
         </g>

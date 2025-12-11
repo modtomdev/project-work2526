@@ -5,16 +5,43 @@ import { changeRailsData } from '../assets/changesData'
 import { Wagon } from './Wagon'
 import React, { useState, useEffect } from 'react';
 
+// Array elementi Rails
 const railsElement = straightRailsData.map((rail) => {
     return <Rail key={rail.id} x={rail.x} y={rail.y}/>
 })
 
+// Array elementi Changes
 const changeElement = changeRailsData.map((change) => {
     return <Change key={change.id} x={change.x} y={change.y} dir={change.dir} />
 })
 
 const Trip1 = straightRailsData.slice(0,10)
 const Trip2 = straightRailsData.slice(straightRailsData.length-10, straightRailsData.length)
+
+const Trips = [Trip1, Trip2]
+
+function GenerateMockSnapshot(index){
+
+    const nWagons = 2
+    const colors = ['red', 'green', 'blue', 'yellow']
+
+    let wagonsInfo = []
+
+    for (let i = 0; i < nWagons; i++) {
+        wagonsInfo.push({
+            id: i,
+            color: colors[i],
+            pos: Trips[i][index].pos
+        })
+        
+    }
+
+    console.log(wagonsInfo)
+
+    return wagonsInfo
+}
+
+
 
 
 const TEMPO_PERCORRENZA = 500;
@@ -39,17 +66,17 @@ export default function SvgSimulation(){
 
     // Recupera i dati del binario ATTIVO
 
-    let AllTrip = [Trip1[currentIndex],Trip2[currentIndex]]
-    console.log(AllTrip)
+    let currentSnapshot = GenerateMockSnapshot(currentIndex)
+    console.log(currentSnapshot)
 
-    let WagonsElements = AllTrip.map((trip) => {
-        console.log(trip.pos)
+    let WagonsElements = currentSnapshot.map((trip) => {
 
         return <Wagon
             pathData={trip.pos} 
             x={trip.x} 
             y={trip.y} 
             duration={TEMPO_PERCORRENZA}
+            color={trip.color}
         />
     })
 
