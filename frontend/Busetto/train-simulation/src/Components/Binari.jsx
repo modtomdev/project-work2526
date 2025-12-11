@@ -1,14 +1,22 @@
 const LENGHT = 20
 
-const Binario = ({ x, y, rotate = 0 }) => {
+const Rail = ({ x, y, rotate = 0 }) => {
+  // Costruiamo la stringa del percorso
+  // M = Move to (sposta la "penna" a 0,0)
+  // L = Line to (disegna una linea fino a LENGHT, 0)
+  // Nota: Poiché siamo dentro un <g> traslato, lavoriamo coordinate locali (partendo da 0,0)
+  
+  const pathData = `M 0 0 L ${LENGHT} 0`; 
+  
+
   return (
     <g transform={`translate(${x}, ${y}) rotate(${rotate})`}>
       {/* Rotaia nera */}
-      <line 
-        x1="0" y1="0" 
-        x2={LENGHT} y2="0" 
+      <path 
+        d={pathData} 
         stroke="black" 
         strokeWidth="4" 
+        fill="none" // Buona norma per i path che sono solo linee
       />
       
       {/* Pallino Inizio (Giunto) */}
@@ -20,7 +28,7 @@ const Binario = ({ x, y, rotate = 0 }) => {
   );
 };
 
-const Scambio = ({ x, y, dir = 1}) => { // Ho aggiunto length come prop per sicurezza
+const Change = ({ x, y, dir = 1}) => { // Ho aggiunto length come prop per sicurezza
   
     // Calcoliamo lo spostamento verticale:
     // Se dir è 1 (giù), offset è +30.
