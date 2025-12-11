@@ -1,0 +1,6 @@
+{
+    "id": "Id generato del treno",
+    "color": "Colore del treno (red, blue...)",
+    "id_section": "Id della sezione su cui si deve spostare il treno",
+    "ALTRI DATI": "Possibili altri dati di abbellimento come il codice del treno da mettere magari appena sopra o cose del genere da vedere in futuro"
+}

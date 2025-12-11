@@ -1,6 +1,6 @@
 const LENGHT = 20
 
-const Rail = ({ x, y, rotate = 0 }) => {
+const Rail = ({ x, y, rotate = 0, id}) => {
   // Costruiamo la stringa del percorso
   // M = Move to (sposta la "penna" a 0,0)
   // L = Line to (disegna una linea fino a LENGHT, 0)
@@ -18,6 +18,14 @@ const Rail = ({ x, y, rotate = 0 }) => {
         strokeWidth="4" 
         fill="none" // Buona norma per i path che sono solo linee
       />
+      <text 
+        x={0}
+        y={-5}
+        fill="red"
+        style={{
+          fontSize: '7px'
+        }}
+      >{id}</text>
       
       {/* Pallino Inizio (Giunto) */}
       <circle cx="0" cy="0" r="3" fill="blue" />
@@ -28,7 +36,7 @@ const Rail = ({ x, y, rotate = 0 }) => {
   );
 };
 
-const Change = ({ x, y, dir = 1 }) => {
+const Change = ({ x, y, dir = 1, id}) => {
     // Calcoli
     const yOffset = 30 * dir;
     const length = LENGHT * 2; // Assumendo LENGHT sia una costante globale
@@ -45,6 +53,14 @@ const Change = ({ x, y, dir = 1 }) => {
                 strokeWidth="4" 
                 fill="none" 
             />
+            <text
+              x={30}
+              y={15*dir}
+              fill="red"
+              style={{
+                fontSize: '7px'
+              }}
+            >{id}</text>
             
             {/* Pallino Fine (segue l'offset) */}
             <circle cx={length} cy={yOffset} r="3" fill="blue" />

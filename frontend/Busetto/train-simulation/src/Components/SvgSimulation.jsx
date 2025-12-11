@@ -1,5 +1,5 @@
 import './svgSimulation.css'
-import { Rail, Change, Terminale } from './Binari'
+import { Rail, Change, Terminale } from './Rails'
 import { straightRailsData } from '../assets/railsData'
 import { changeRailsData } from '../assets/changesData'
 import { Wagon } from './Wagon'
@@ -7,12 +7,12 @@ import React, { useState, useEffect } from 'react';
 
 // Array elementi Rails
 const railsElement = straightRailsData.map((rail) => {
-    return <Rail key={rail.id} x={rail.x} y={rail.y}/>
+    return <Rail key={rail.id} x={rail.x} y={rail.y} id={rail.id}/>
 })
 
 // Array elementi Changes
 const changeElement = changeRailsData.map((change) => {
-    return <Change key={change.id} x={change.x} y={change.y} dir={change.dir} />
+    return <Change key={change.id} x={change.x} y={change.y} dir={change.dir} id={change.id}/>
 })
 
 const Trip1 = straightRailsData.slice(0,10)
@@ -88,17 +88,9 @@ export default function SvgSimulation(){
                     {/* Disegna tutti i binari */}
                     {railsElement}
                     {changeElement}
-
-                    {/* Il Vagone Dinamico: riceve i dati del binario attivo */}
-                    {/* <Wagon 
-                        pathData={currentRail.pos} 
-                        x={currentRail.x} 
-                        y={currentRail.y} 
-                        duration={TEMPO_PERCORRENZA}
-                    /> */}
                     
 
-                    {WagonsElements}
+                    {/* {WagonsElements} */}
 
                     
                 </svg>
