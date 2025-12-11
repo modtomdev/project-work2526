@@ -6,12 +6,17 @@ const SECTION_LENGTH = 20;
 
 function createRailsData(start_x, start_y, rotate, type, total_sections, key_start){
     return Array.from({ length: total_sections }, (_, index) => {
+
+        let x = start_x + (index * SECTION_LENGTH)
+        let y = start_y
+
         return {
             id: `${key_start}-${index}`,            // ID univoco (es. t1-0, t1-1, t1-2...)
             type: {type},                       // Tipo di binario (deve corrispondere al tuo switch case)
-            x: start_x + (index * SECTION_LENGTH),  // Calcolo progressivo della X
-            y: start_y,                             // Y fissa
-            rotate: {rotate}                               // Rotazione 0 (dritto)
+            x: x,  // Calcolo progressivo della X
+            y: y,                             // Y fissa
+            rotate: {rotate},                               // Rotazione 0 (dritto)
+            pos: `M ${x} ${y} L ${SECTION_LENGTH+x} ${y}`
         }
     })
 }
@@ -49,11 +54,15 @@ export const straightRailData = [...rail1, ...rail2, ...rail3, ...rail4]
 
 function createChangesData(changesDataArray){
     return changesDataArray.map((change) => {
+        let x = railsInfo[change.rail].x1+SECTION_LENGTH*change.iPosition
+        let y = railsInfo[change.rail].y1
+
         return({
             id: `c-r${change.rail}-${change.iPosition}`,
-            x: railsInfo[change.rail].x1+SECTION_LENGTH*change.iPosition,
-            y: railsInfo[change.rail].y1,
-            dir: change.dir
+            x: x,
+            y: y,
+            dir: change.dir,
+            pos: `M ${x} ${y} L ${SECTION_LENGTH} 0`
         })
     })
 }
