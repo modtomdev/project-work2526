@@ -1,8 +1,7 @@
 
-import { changesData } from "./changesData";
 
 // --- CONFIGURAZIONE ---
-const SECTION_LENGTH = 20;
+export const SECTION_LENGTH = 20;
 
 function createRailsData(start_x, start_y, rotate, type, total_sections, key_start){
     return Array.from({ length: total_sections }, (_, index) => {
@@ -21,7 +20,7 @@ function createRailsData(start_x, start_y, rotate, type, total_sections, key_sta
     })
 }
 
-const railsInfo = [
+export const railsInfo = [
     {
         id: 'r0',
         x1: 30,
@@ -50,23 +49,6 @@ const rail2 = createRailsData(railsInfo[1].x1, railsInfo[1].y1, 0, 'straight', 4
 const rail3 = createRailsData(railsInfo[2].x1, railsInfo[2].y1, 0, 'straight', 25, 'r2')
 const rail4 = createRailsData(railsInfo[3].x1, railsInfo[3].y1, 0, 'straight', 11, 'r3')
 
-export const straightRailData = [...rail1, ...rail2, ...rail3, ...rail4]
+export const straightRailsData = [...rail1, ...rail2, ...rail3, ...rail4]
 
-function createChangesData(changesDataArray){
-    return changesDataArray.map((change) => {
-        let x = railsInfo[change.rail].x1+SECTION_LENGTH*change.iPosition
-        let y = railsInfo[change.rail].y1
 
-        return({
-            id: `c-r${change.rail}-${change.iPosition}`,
-            x: x,
-            y: y,
-            dir: change.dir,
-            pos: `M ${x} ${y} L ${SECTION_LENGTH} 0`
-        })
-    })
-}
-
-export const changeRailsData = createChangesData(changesData)
-
-console.log(changeRailsData)

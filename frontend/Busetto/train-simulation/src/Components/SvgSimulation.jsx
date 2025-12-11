@@ -1,10 +1,11 @@
 import './svgSimulation.css'
 import { Rail, Change, Terminale } from './Binari'
-import { straightRailData, changeRailsData } from '../assets/railData'
+import { straightRailsData } from '../assets/railsData'
+import { changeRailsData } from '../assets/changesData'
 import { Wagon } from './Wagon'
 import React, { useState, useEffect } from 'react';
 
-const railsElement = straightRailData.map((rail) => {
+const railsElement = straightRailsData.map((rail) => {
     return <Rail key={rail.id} x={rail.x} y={rail.y}/>
 })
 
@@ -12,8 +13,11 @@ const changeElement = changeRailsData.map((change) => {
     return <Change key={change.id} x={change.x} y={change.y} dir={change.dir} />
 })
 
+const Trip1 = straightRailsData.slice(0,10)
+const Trip2 = straightRailsData.slice(straightRailsData.length-10, straightRailsData.length)
 
-const TEMPO_PERCORRENZA = 500; 
+
+const TEMPO_PERCORRENZA = 500;
 
 export default function SvgSimulation(){
     
@@ -25,15 +29,29 @@ export default function SvgSimulation(){
         const interval = setInterval(() => {
             setCurrentIndex((prevIndex) => {
                 // Passa all'indice successivo in loop
-                return (prevIndex + 1) % straightRailData.length;
+                return (prevIndex + 1) % 10;
             });
+
         }, TEMPO_PERCORRENZA);
 
         return () => clearInterval(interval);
     }, []); 
 
     // Recupera i dati del binario ATTIVO
-    const currentRail = straightRailData[currentIndex];
+
+    let AllTrip = [Trip1[currentIndex],Trip2[currentIndex]]
+    console.log(AllTrip)
+
+    let WagonsElements = AllTrip.map((trip) => {
+        console.log(trip.pos)
+
+        return <Wagon
+            pathData={trip.pos} 
+            x={trip.x} 
+            y={trip.y} 
+            duration={TEMPO_PERCORRENZA}
+        />
+    })
 
     return(
         <>
@@ -45,12 +63,17 @@ export default function SvgSimulation(){
                     {changeElement}
 
                     {/* Il Vagone Dinamico: riceve i dati del binario attivo */}
-                    <Wagon 
+                    {/* <Wagon 
                         pathData={currentRail.pos} 
                         x={currentRail.x} 
                         y={currentRail.y} 
                         duration={TEMPO_PERCORRENZA}
-                    />
+                    /> */}
+                    
+
+                    {WagonsElements}
+
+                    
                 </svg>
             </div>
         </>
