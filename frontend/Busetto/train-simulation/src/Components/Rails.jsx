@@ -1,6 +1,6 @@
 const LENGHT = 20
 
-const Rail = ({ x, y, rotate = 0 }) => {
+const Rail = ({ x, y, rotate = 0, id}) => {
   // Costruiamo la stringa del percorso
   // M = Move to (sposta la "penna" a 0,0)
   // L = Line to (disegna una linea fino a LENGHT, 0)
@@ -18,6 +18,14 @@ const Rail = ({ x, y, rotate = 0 }) => {
         strokeWidth="4" 
         fill="none" // Buona norma per i path che sono solo linee
       />
+      <text 
+        x={0}
+        y={-5}
+        fill="red"
+        style={{
+          fontSize: '7px'
+        }}
+      >{id}</text>
       
       {/* Pallino Inizio (Giunto) */}
       <circle cx="0" cy="0" r="3" fill="blue" />
@@ -28,28 +36,37 @@ const Rail = ({ x, y, rotate = 0 }) => {
   );
 };
 
-const Change = ({ x, y, dir = 1}) => { // Ho aggiunto length come prop per sicurezza
-  
-    // Calcoliamo lo spostamento verticale:
-    // Se dir è 1 (giù), offset è +30.
-    // Se dir è -1 (su), offset è -30.
+const Change = ({ x, y, dir = 1, id}) => {
+    // Calcoli
     const yOffset = 30 * dir;
-    length = LENGHT*2
+    const length = LENGHT * 2; // Assumendo LENGHT sia una costante globale
+
+    // Costruiamo il path: M = Start, L = End
+    const pathData = `M 0 0 L ${length} ${yOffset}`;
 
     return (
         <g transform={`translate(${x}, ${y})`}>
-        <line 
-            x1="0" y1="0" 
-            x2={length} y2={yOffset}  // <--- Qui c'è la magia: Y finale fissa a 30
-            stroke="black" 
-            strokeWidth="4" 
-        />
-        
-        {/* Il pallino blu finale deve seguire la linea */}
-        <circle cx={length} cy={yOffset} r="3" fill="blue" />
+            {/* Binario (Scambio) */}
+            <path 
+                d={pathData} 
+                stroke="black" 
+                strokeWidth="4" 
+                fill="none" 
+            />
+            <text
+              x={30}
+              y={15*dir}
+              fill="red"
+              style={{
+                fontSize: '7px'
+              }}
+            >{id}</text>
+            
+            {/* Pallino Fine (segue l'offset) */}
+            <circle cx={length} cy={yOffset} r="3" fill="blue" />
 
-        {/* Pallino comune all'origine */}
-        <circle cx="0" cy="0" r="3" fill="blue" />
+            {/* Pallino Inizio */}
+            <circle cx="0" cy="0" r="3" fill="blue" />
         </g>
     );
 };
@@ -75,4 +92,4 @@ const Terminale = ({ x, y, rotate = 0 }) => {
   );
 };
 
-export { Binario, Scambio, Terminale };
+export { Rail, Change, Terminale };

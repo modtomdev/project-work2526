@@ -1,5 +1,6 @@
+import { railsInfo, SECTION_LENGTH } from "./railsData"
 
-export const changesData = [{
+const changesData = [{
         rail: 0,
         iPosition: 3,
         dir: 1
@@ -59,3 +60,21 @@ export const changesData = [{
         dir: -1
     },
 ]
+
+
+function createChangesData(changesDataArray){
+    return changesDataArray.map((change) => {
+        let x = railsInfo[change.rail].x1+SECTION_LENGTH*change.iPosition
+        let y = railsInfo[change.rail].y1
+
+        return({
+            id: `c-r${change.rail}-${change.iPosition}`,
+            x: x,
+            y: y,
+            dir: change.dir,
+            pos: `M ${x} ${y} L ${SECTION_LENGTH} 0`
+        })
+    })
+}
+
+export const changeRailsData = createChangesData(changesData)
