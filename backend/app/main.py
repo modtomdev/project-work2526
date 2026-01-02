@@ -6,8 +6,9 @@ from fastapi import UploadFile, File
 from fastapi.responses import HTMLResponse
 import csv
 from io import StringIO
+import asyncpg
 
-from models import Train, Section, Connection, TrainType, SwitchSetPayload
+from models import Train, Section, Connection, TrainType, SwitchSetPayload, RailBlock
 from simulation import SimulationEngine
 
 app = FastAPI(
@@ -17,6 +18,7 @@ app = FastAPI(
 )
 
 engine: Optional[SimulationEngine] = None
+db_pool: Optional[asyncpg.pool.Pool] = None
 
 class ConnectionManager:
     """Manage active WebSocket connections for broadcasting state updates."""
@@ -76,58 +78,86 @@ async def simulation_loop(tick_rate_hz: int = 10, sim_speed_multiplier: int = 5)
 async def on_startup():
     """Load initial data from DB (mock data here), initialize engine and start simulation loop."""
     global engine
+    global db_pool
+    # Replace this DSN with your Postgres connection string
+    DB_DSN = "<REPLACE_WITH_POSTGRES_DSN>"
+
+    try:
+        db_pool = await asyncpg.create_pool(dsn=DB_DSN)
+    except Exception as e:
+        print(f"Warning: could not connect to DB on startup: {e}. Falling back to empty dataset.")
+        db_pool = None
     
-    sections = [
-        Section(section_id=1, x=0, y=2),  # left_in
-        Section(section_id=2, is_switch=True, x=1, y=2),  # left_switch
-        Section(section_id=3, x=2, y=1),  # left_platform_A
-        Section(section_id=4, x=2, y=3),  # left_platform_B
-        Section(section_id=5, is_switch=True, x=3, y=2),  # merge / entry to center (switch)
-        Section(section_id=6, x=4, y=0),  # center platform 1
-        Section(section_id=7, x=4, y=1),  # center platform 2
-        Section(section_id=8, x=4, y=2),  # center platform 3
-        Section(section_id=9, x=4, y=3),  # center platform 4
-        Section(section_id=10, is_switch=True, x=5, y=2), # right_switch
-        Section(section_id=11, x=6, y=1), # right_platform_A
-        Section(section_id=12, x=6, y=3), # right_platform_B
-        Section(section_id=13, x=7, y=2), # right_out
-    ]
+    # If we have a DB pool, load sections, connections, train_types, rail_blocks and stops from Postgres.
+    sections = []
+    connections = []
+    train_types = []
+    rail_blocks = []
+    stops = []
 
-    connections = [
-        Connection(from_section_id=1, to_section_id=2, is_active=True),
-        Connection(from_section_id=2, to_section_id=3, is_active=True),
-        Connection(from_section_id=2, to_section_id=4, is_active=False),
-        Connection(from_section_id=3, to_section_id=5, is_active=True),
-        Connection(from_section_id=4, to_section_id=5, is_active=True),
+    if db_pool is not None:
+        async with db_pool.acquire() as conn:
+            # Load connections first (we'll derive switches from counts)
+            try:
+                rows = await conn.fetch("SELECT from_section_id, to_section_id, is_active FROM section_connections")
+                for r in rows:
+                    connections.append(Connection(
+                        from_section_id=r['from_section_id'],
+                        to_section_id=r['to_section_id'],
+                        is_active=bool(r['is_active'])
+                    ))
 
-        Connection(from_section_id=5, to_section_id=6, is_active=True),
-        Connection(from_section_id=5, to_section_id=7, is_active=False),
-        Connection(from_section_id=5, to_section_id=8, is_active=False),
-        Connection(from_section_id=5, to_section_id=9, is_active=False),
+                # Load sections
+                rows = await conn.fetch("SELECT section_id FROM sections")
+                # Determine which sections are switches (multiple outgoing connections)
+                out_counts = {}
+                for c in connections:
+                    out_counts[c.from_section_id] = out_counts.get(c.from_section_id, 0) + 1
 
-        Connection(from_section_id=6, to_section_id=10, is_active=True),
-        Connection(from_section_id=7, to_section_id=10, is_active=True),
-        Connection(from_section_id=8, to_section_id=10, is_active=True),
-        Connection(from_section_id=9, to_section_id=10, is_active=True),
+                for r in rows:
+                    sid = r['section_id']
+                    is_switch = out_counts.get(sid, 0) > 1
+                    sections.append(Section(section_id=sid, is_switch=is_switch))
 
-        Connection(from_section_id=10, to_section_id=11, is_active=True),
-        Connection(from_section_id=10, to_section_id=12, is_active=False),
-        Connection(from_section_id=11, to_section_id=13, is_active=True),
-        Connection(from_section_id=12, to_section_id=13, is_active=True),
-    ]
+                # Load rail blocks
+                rows = await conn.fetch("SELECT block_id, block_name, section_id FROM rail_blocks")
+                for r in rows:
+                    rail_blocks.append(RailBlock(block_id=r['block_id'], block_name=r['block_name'], section_id=r['section_id']))
 
-    train_types = [
-        TrainType(train_type_id=1, type_name="Regionale", priority_index=2, cruising_speed=5.0), # sezioni/min
-        TrainType(train_type_id=2, type_name="Alta Velocità", priority_index=1, cruising_speed=10.0),
-    ]
+                # Load train types
+                rows = await conn.fetch("SELECT train_type_id, type_name, priority_index, cruising_speed FROM train_types")
+                for r in rows:
+                    train_types.append(TrainType(
+                        train_type_id=r['train_type_id'],
+                        type_name=r['type_name'],
+                        priority_index=r['priority_index'],
+                        cruising_speed=float(r['cruising_speed'])
+                    ))
 
-    trains = [
-        Train(train_id=101, train_code="R_101", train_type_id=1, current_section_id=1, num_wagons=3, status='Moving'),
-        #Train(train_id=201, train_code="AV_201", train_type_id=2, current_section_id=9, position_offset=0.2, num_wagons=5, status='Moving'),
-    ]
+                # Load stops
+                rows = await conn.fetch("SELECT stop_id, stop_name, section_id FROM stops")
+                for r in rows:
+                    stops.append({
+                        'stop_id': r['stop_id'],
+                        'stop_name': r['stop_name'],
+                        'section_id': r['section_id']
+                    })
+
+            except Exception as e:
+                print(f"DB read error on startup: {e}")
+                sections = []
+                connections = []
+                train_types = []
+                rail_blocks = []
+                stops = []
+    else:
+        print("DB pool not available - simulator will start with empty network.")
+
+    # Start with no trains loaded by default
+    trains = []
 
     # Initialize engine
-    engine = SimulationEngine(sections, connections, train_types, trains)
+    engine = SimulationEngine(sections, connections, train_types, trains, blocks=rail_blocks)
 
     # Start simulation loop in background
     print("Starting simulation loop in background...")
@@ -240,6 +270,18 @@ async def get_debug_ui():
     with open('./websocket-debug.html', "r") as text_file:
         websocket_debug_page = text_file.read()
     return websocket_debug_page
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    """Close DB pool on shutdown."""
+    global db_pool
+    try:
+        if db_pool is not None:
+            await db_pool.close()
+            print("DB pool closed")
+    except Exception as e:
+        print(f"Error closing DB pool: {e}")
 
 if __name__ == "__main__":
     print("Starting backend on http://0.0.0.0:8000")
