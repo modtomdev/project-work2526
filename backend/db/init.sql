@@ -34,54 +34,53 @@ CREATE TABLE IF NOT EXISTS train_types (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS trains (
-    train_id SERIAL PRIMARY KEY,
-    train_code VARCHAR(100) UNIQUE NOT NULL,
-    train_type_id INTEGER NOT NULL REFERENCES train_types(train_type_id),
-    current_section_id INTEGER REFERENCES sections(section_id),
-    direction SMALLINT DEFAULT 1 CHECK (direction IN (-1, 1)),
-    requires_maintenance BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+-- CREATE TABLE IF NOT EXISTS trains (
+--     train_id SERIAL PRIMARY KEY,
+--     train_code VARCHAR(100) UNIQUE NOT NULL,
+--     train_type_id INTEGER NOT NULL REFERENCES train_types(train_type_id),
+--     current_section_id INTEGER REFERENCES sections(section_id),
+--     direction SMALLINT DEFAULT 1 CHECK (direction IN (-1, 1)),
+--     requires_maintenance BOOLEAN DEFAULT FALSE,
+--     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- );
 
-CREATE TABLE IF NOT EXISTS wagons (
-    wagon_id SERIAL PRIMARY KEY,
-    train_id INTEGER NOT NULL REFERENCES trains(train_id) ON DELETE CASCADE,
-    wagon_index INTEGER NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(train_id, wagon_index)
-);
+-- CREATE TABLE IF NOT EXISTS wagons (
+--     wagon_id SERIAL PRIMARY KEY,
+--     train_id INTEGER NOT NULL REFERENCES trains(train_id) ON DELETE CASCADE,
+--     wagon_index INTEGER NOT NULL,
+--     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--     UNIQUE(train_id, wagon_index)
+-- );
 
-CREATE TABLE IF NOT EXISTS wagon_positions (
-    position_id SERIAL PRIMARY KEY,
-    wagon_id INTEGER UNIQUE REFERENCES wagons(wagon_id) ON DELETE CASCADE,
-    section_id INTEGER REFERENCES sections(section_id),
-    position_offset FLOAT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+-- CREATE TABLE IF NOT EXISTS wagon_positions (
+--     position_id SERIAL PRIMARY KEY,
+--     wagon_id INTEGER UNIQUE REFERENCES wagons(wagon_id) ON DELETE CASCADE,
+--     section_id INTEGER REFERENCES sections(section_id),
+--     position_offset FLOAT NOT NULL,
+--     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- );
 
 CREATE TABLE IF NOT EXISTS stops (
     stop_id SERIAL PRIMARY KEY,
     stop_name VARCHAR(100) UNIQUE NOT NULL,
     section_id INTEGER UNIQUE REFERENCES sections(section_id),
-    platform_number INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS train_schedules (
-    schedule_id SERIAL PRIMARY KEY,
-    train_id INTEGER NOT NULL REFERENCES trains(train_id) ON DELETE CASCADE,
-    stop_id INTEGER NOT NULL REFERENCES stops(stop_id),
-    scheduled_arrival_time TIMESTAMP NOT NULL,
-    scheduled_departure_time TIMESTAMP NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CHECK (scheduled_departure_time >= scheduled_arrival_time)
-);
+-- CREATE TABLE IF NOT EXISTS train_schedules (
+--     schedule_id SERIAL PRIMARY KEY,
+--     train_id INTEGER NOT NULL REFERENCES trains(train_id) ON DELETE CASCADE,
+--     stop_id INTEGER NOT NULL REFERENCES stops(stop_id),
+--     scheduled_arrival_time TIMESTAMP NOT NULL,
+--     scheduled_departure_time TIMESTAMP NOT NULL,
+--     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+--     CHECK (scheduled_departure_time >= scheduled_arrival_time)
+-- );
 
 CREATE OR REPLACE VIEW train_delays_view AS
 SELECT
