@@ -4,7 +4,7 @@ import datetime
 
 class Section(BaseModel):
     """Represents a single track segment (section)."""
-    section_id: intBaseModel
+    section_id: int
     is_switch: bool = False
     is_occupied: bool = False
 
