@@ -34,7 +34,7 @@ class Train(BaseModel):
     train_type_id: int
     current_section_id: int
     position_offset: float = 0.0
-    #status: str = 'Moving'
+    status: str = 'Moving'
     num_wagons: int = 1
 
 class Wagon(BaseModel):

@@ -123,7 +123,7 @@ async def on_startup():
 
     trains = [
         Train(train_id=101, train_code="R_101", train_type_id=1, current_section_id=1, num_wagons=3, status='Moving'),
-        Train(train_id=201, train_code="AV_201", train_type_id=2, current_section_id=1, position_offset=0.2, num_wagons=5, status='Moving'),
+        #Train(train_id=201, train_code="AV_201", train_type_id=2, current_section_id=9, position_offset=0.2, num_wagons=5, status='Moving'),
     ]
 
     # Initialize engine
