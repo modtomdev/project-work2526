@@ -3,6 +3,7 @@ import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from typing import List, Dict, Optional
 from fastapi import UploadFile, File
+from fastapi.responses import HTMLResponse
 import csv
 from io import StringIO
 
@@ -265,8 +266,121 @@ async def websocket_traffic_endpoint(websocket: WebSocket):
         print(f"Errore WebSocket: {e}")
         manager.disconnect(websocket)
 
+html_debug_page = """
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>WebSocket Debugger</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        <style>
+            #log { height: 400px; overflow-y: scroll; background: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; font-family: monospace; }
+            .msg-sent { color: #0d6efd; }
+            .msg-received { color: #198754; }
+            .msg-error { color: #dc3545; }
+        </style>
+    </head>
+    <body class="container py-5">
+        <h2 class="mb-4">🔌 WebSocket Tester</h2>
+        
+        <div class="row mb-3">
+            <div class="col-md-8">
+                <div class="input-group">
+                    <span class="input-group-text">ws://</span>
+                    <input type="text" id="wsUrl" class="form-control" value="">
+                    <button class="btn btn-success" onclick="connect()">Connetti</button>
+                    <button class="btn btn-danger" onclick="disconnect()">Disconnetti</button>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <span id="status" class="badge bg-secondary">Disconnesso</span>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <h5>Invia Messaggio</h5>
+                <form onsubmit="sendMessage(event)">
+                    <textarea id="messageText" class="form-control mb-2" rows="3" placeholder='{"action": "hello"}'></textarea>
+                    <button class="btn btn-primary w-100">Invia</button>
+                </form>
+            </div>
+            <div class="col-md-6">
+                <h5>Log Eventi <button class="btn btn-sm btn-outline-secondary float-end" onclick="clearLog()">Clear</button></h5>
+                <div id="log"></div>
+            </div>
+        </div>
+
+        <script>
+            var ws = null;
+            // Imposta l'URL di default basandosi sulla finestra del browser (gestisce le porte di Docker automaticamente)
+            document.getElementById('wsUrl').value = window.location.host + "/ws";
+
+            function log(msg, type) {
+                var logDiv = document.getElementById('log');
+                var div = document.createElement('div');
+                div.className = type;
+                div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+                logDiv.appendChild(div);
+                logDiv.scrollTop = logDiv.scrollHeight;
+            }
+
+            function connect() {
+                var url = "ws://" + document.getElementById("wsUrl").value;
+                ws = new WebSocket(url);
+                
+                ws.onopen = function() {
+                    document.getElementById("status").className = "badge bg-success";
+                    document.getElementById("status").textContent = "Connesso";
+                    log("Connessione stabilita", "text-dark");
+                };
+                
+                ws.onmessage = function(event) {
+                    log("RX: " + event.data, "msg-received");
+                };
+
+                ws.onclose = function() {
+                    document.getElementById("status").className = "badge bg-danger";
+                    document.getElementById("status").textContent = "Disconnesso";
+                    log("Connessione chiusa", "msg-error");
+                };
+            }
+
+            function disconnect() {
+                if(ws) ws.close();
+            }
+
+            function sendMessage(event) {
+                event.preventDefault();
+                var input = document.getElementById("messageText");
+                if(ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(input.value);
+                    log("TX: " + input.value, "msg-sent");
+                } else {
+                    alert("Non sei connesso!");
+                }
+            }
+            
+            function clearLog() {
+                document.getElementById('log').innerHTML = '';
+            }
+        </script>
+    </body>
+</html>
+"""
+
+@app.get("/ws-debug", response_class=HTMLResponse)
+async def get_debug_ui():
+    return html_debug_page
+
+# --- Esempio di Endpoint WebSocket ---
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    while True:
+        data = await websocket.receive_text()
+        await websocket.send_text(f"Echo dal container Docker: {data}")
 
 # --- Esecuzione (per test) ---
 if __name__ == "__main__":
-    print("Avvio del server TrenoSim su http://127.0.0.1:8000")
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    print("Avvio del server TrenoSim su http://0.0.0.0:8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000)
