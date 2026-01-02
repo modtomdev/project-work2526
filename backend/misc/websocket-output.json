@@ -1,37 +1,53 @@
 {
-  "type": "train_update",
+  "type": "tick",
   "trains": [
     {
       "train_id": 101,
-      "train_code": "R_101",
+      "train_code": "RV101",
       "train_type_id": 1,
-      "current_section_id": 13,
-      "position_offset": 0.99,
-      "status": "Stopped",
-      "num_wagons": 3
-    }
-  ],
-  "wagons": [
-    {
-      "wagon_id": 1000,
-      "train_id": 101,
-      "wagon_index": 0,
-      "section_id": 13,
-      "position_offset": 0.99
-    },
-    {
-      "wagon_id": 1001,
-      "train_id": 101,
-      "wagon_index": 1,
-      "section_id": 13,
-      "position_offset": 0.99
-    },
-    {
-      "wagon_id": 1002,
-      "train_id": 101,
-      "wagon_index": 2,
-      "section_id": 13,
-      "position_offset": 0.99
+      "current_section_id": 4,
+      "position_offset": 0.34999999999999576,
+      "status": "Moving",
+      "num_wagons": 5,
+      "desired_stop_id": 2,
+      "wait_elapsed": 0,
+      "wagons": [
+        {
+          "wagon_id": 1001,
+          "train_id": 101,
+          "wagon_index": 0,
+          "section_id": 4,
+          "position_offset": 0.34999999999999576
+        },
+        {
+          "wagon_id": 1002,
+          "train_id": 101,
+          "wagon_index": 1,
+          "section_id": 3,
+          "position_offset": 0.34999999999999576
+        },
+        {
+          "wagon_id": 1003,
+          "train_id": 101,
+          "wagon_index": 2,
+          "section_id": 2,
+          "position_offset": 0.34999999999999576
+        },
+        {
+          "wagon_id": 1004,
+          "train_id": 101,
+          "wagon_index": 3,
+          "section_id": 1,
+          "position_offset": 0.34999999999999576
+        },
+        {
+          "wagon_id": 1005,
+          "train_id": 101,
+          "wagon_index": 4,
+          "section_id": 0,
+          "position_offset": 0.34999999999999576
+        }
+      ]
     }
   ]
 }
