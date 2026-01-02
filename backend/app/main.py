@@ -1,239 +1,114 @@
 import asyncio
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
-from typing import List, Optional
-from fastapi import UploadFile, File
 from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 import csv
 from io import StringIO
 import asyncpg
+from typing import List, Optional
 
 from models import Train, Section, Connection, TrainType, RailBlock
 from simulation import SimulationEngine
 
-app = FastAPI(
-    title="TrainSim - Railway Network Simulator",
-    description="API for controlling and monitoring a railway simulation.",
-    version="1.0.0"
-)
+app = FastAPI(title="TrainSim V3", version="3.0")
 
 engine: Optional[SimulationEngine] = None
 db_pool: Optional[asyncpg.pool.Pool] = None
 
 class ConnectionManager:
-    """Manage active WebSocket connections for broadcasting state updates."""
     def __init__(self):
         self.active_connections: List[WebSocket] = []
-
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-
     def disconnect(self, websocket: WebSocket):
         self.active_connections.remove(websocket)
-
-    async def broadcast_json(self, data: dict):
-        """Sends JSON to all connected devices."""
+    async def broadcast(self, data: dict):
         for connection in self.active_connections:
-            await connection.send_json(data)
+            try: await connection.send_json(data)
+            except: pass
 
 manager = ConnectionManager()
 
-async def simulation_loop(tick_rate_hz: int = 10, sim_speed_multiplier: int = 5):
-    """Main loop that advances the simulation engine and broadcasts updates."""
-    if engine is None:
-        print("Error: engine not initialized.")
-        return
-
-    # dt is the actual time interval between ticks
-    real_dt = 1.0 / tick_rate_hz
-    # sim_dt is the simulated time interval between ticks (can be accelerated)
-    sim_dt = real_dt * sim_speed_multiplier
-
+async def simulation_loop(tick_rate: int = 10):
+    real_dt = 1.0 / tick_rate
     while True:
-        try:
-            await engine.run_tick(sim_dt)
-
-            trains_state = await engine.get_all_trains_state()
-            wagons_state = await engine.get_wagons_state()
-            
-            # JSON serialization
-            trains_data = [t.model_dump() for t in trains_state]
-            wagons_data = [w.model_dump() for w in wagons_state]
-
-            # WS send
-            await manager.broadcast_json({
-                "type": "train_update",
-                "trains": trains_data,
-                "wagons": wagons_data
-            })
-            
-            await asyncio.sleep(real_dt)
-            
-        except Exception as e:
-            print(f"Simulation loop error: {e}")
-            await asyncio.sleep(1)
+        if engine:
+            try:
+                await engine.run_tick(real_dt)
+                full_trains = await engine.get_full_state()
+                await manager.broadcast({"type": "tick", "trains": [t.model_dump() for t in full_trains]})
+            except Exception as e:
+                print(f"Sim Loop Error: {e}")
+        await asyncio.sleep(real_dt)
 
 @app.on_event("startup")
-async def on_startup():
-    """Load initial data from DB, initialize engine and start simulation loop."""
-    global engine
-    global db_pool
-    DB_DSN = "postgres://myuser:mypassword@db:5432/database?option=mydb"
-
+async def startup():
+    global engine, db_pool
+    DB_DSN = "postgres://myuser:mypassword@db:5432/mydb"
+    
+    sections, connections, train_types, rail_blocks, stops = [], [], [], [], []
+    
     try:
         db_pool = await asyncpg.create_pool(dsn=DB_DSN)
-    except Exception as e:
-        print(f"Warning: could not connect to DB on startup: {e}. Falling back to empty dataset.")
-        db_pool = None
-    
-    sections = []
-    connections = []
-    train_types = []
-    rail_blocks = []
-    stops = []
-
-    if db_pool is not None:
         async with db_pool.acquire() as conn:
-            try:
-                rows = await conn.fetch("SELECT from_section_id, to_section_id, is_active FROM section_connections")
-                for r in rows:
-                    connections.append(Connection(
-                        from_section_id=r['from_section_id'],
-                        to_section_id=r['to_section_id'],
-                        is_active=bool(r['is_active'])
-                    ))
+            rows = await conn.fetch("SELECT section_id FROM sections")
+            sections = [Section(section_id=r['section_id']) for r in rows]
+            
+            rows = await conn.fetch("SELECT from_section_id, to_section_id, is_active FROM section_connections")
+            connections = [Connection(**dict(r)) for r in rows]
 
-                rows = await conn.fetch("SELECT section_id FROM sections")
+            rows = await conn.fetch("SELECT * FROM train_types")
+            train_types = [TrainType(**dict(r)) for r in rows]
 
-                # Load rail blocks
-                rows = await conn.fetch("SELECT block_id, block_name, section_id FROM rail_blocks")
-                for r in rows:
-                    rail_blocks.append(RailBlock(block_id=r['block_id'], block_name=r['block_name'], section_id=r['section_id']))
+            rows = await conn.fetch("SELECT block_id, block_name, section_id FROM rail_blocks")
+            rail_blocks = [RailBlock(**dict(r)) for r in rows]
 
-                # Load train types
-                rows = await conn.fetch("SELECT train_type_id, type_name, priority_index, cruising_speed FROM train_types")
-                for r in rows:
-                    train_types.append(TrainType(
-                        train_type_id=r['train_type_id'],
-                        type_name=r['type_name'],
-                        priority_index=r['priority_index'],
-                        cruising_speed=float(r['cruising_speed'])
-                    ))
+            # Load Stops
+            rows = await conn.fetch("SELECT stop_id, stop_name, section_id FROM stops")
+            stops = [dict(r) for r in rows]
+            
+            print(f"Loaded {len(sections)} sections, {len(stops)} stops.")
+    except Exception as e:
+        print(f"DB Error: {e}. Starting empty.")
 
-                # Load stops
-                rows = await conn.fetch("SELECT stop_id, stop_name, section_id FROM stops")
-                for r in rows:
-                    stops.append({
-                        'stop_id': r['stop_id'],
-                        'stop_name': r['stop_name'],
-                        'section_id': r['section_id']
-                    })
+    engine = SimulationEngine(sections, connections, train_types, [], blocks=rail_blocks, stops=stops)
+    asyncio.create_task(simulation_loop())
 
-            except Exception as e:
-                print(f"DB read error on startup: {e}")
-                sections = []
-                connections = []
-                train_types = []
-                rail_blocks = []
-                stops = []
-    else:
-        print("DB pool not available - simulator will start with empty network.")
-
-    # Start with no trains loaded by default
-    trains = []
-
-    engine = SimulationEngine(sections, connections, train_types, trains, blocks=rail_blocks)
-
-    print("Starting simulation loop in background...")
-    asyncio.create_task(simulation_loop(tick_rate_hz=10, sim_speed_multiplier=5))
-
-# --- Endpoints API REST ---
-
-@app.get("/api/v1/sections", tags=["Network"])
-async def api_get_sections():
-    if engine is None:
-        raise HTTPException(status_code=503, detail="Simulator not ready")
-    return await engine.get_sections_state()
-
-@app.get("/api/v1/connections", tags=["Network"])
-async def api_get_connections():
-    if engine is None:
-        raise HTTPException(status_code=503, detail="Simulator not ready")
-    return await engine.get_connections_state()
-
-@app.get("/api/v1/wagons", tags=["Wagons"])
-async def api_get_wagons():
-    if engine is None:
-        raise HTTPException(status_code=503, detail="Simulator not ready")
-    return await engine.get_wagons_state()
-
-@app.post("/api/v1/load_trains", tags=["CSV Loader"])
+@app.post("/api/v1/load_trains")
 async def api_load_trains(file: UploadFile = File(...)):
-    """Upload a CSV with trains and add them to the simulation.
-    Expected CSV columns: train_id,train_code,train_type_id,current_section_id,position_offset,status
-    """
-    if engine is None:
-        raise HTTPException(status_code=503, detail="Simulator not ready")
-
+    """CSV: train_id, train_code, train_type_id, current_section_id, num_wagons, desired_stop"""
+    if not engine: raise HTTPException(503, "Engine not ready")
+    
     content = await file.read()
-    try:
-        text = content.decode('utf-8')
-    except Exception:
-        raise HTTPException(status_code=400, detail="File not decodable as UTF-8")
-
-    reader = csv.DictReader(StringIO(text))
+    reader = csv.DictReader(StringIO(content.decode('utf-8')))
+    
     new_trains = []
     for row in reader:
-        try:
-            new_trains.append(Train(
-                train_id=int(row.get('train_id')),
-                train_code=row.get('train_code'),
-                train_type_id=int(row.get('train_type_id')),
-                current_section_id=int(row.get('current_section_id')) if row.get('current_section_id') else None,
-                position_offset=float(row.get('position_offset') or 0.0),
-                num_wagons=int(row.get('num_wagons') or 1),
-                status=row.get('status') or 'Scheduled'
-            ))
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"CSV row error: {e}")
+        # Parse desired_stop (handle empty string or null)
+        d_stop = row.get('desired_stop')
+        final_stop_id = int(d_stop) if d_stop and d_stop.strip() else None
 
+        new_trains.append(Train(
+            train_id=int(row['train_id']),
+            train_code=row['train_code'],
+            train_type_id=int(row['train_type_id']),
+            current_section_id=int(row['current_section_id']),
+            num_wagons=int(row.get('num_wagons', 1)),
+            desired_stop_id=final_stop_id, # New Field
+            status='Moving'
+        ))
+    
     await engine.add_trains(new_trains)
-    return {"status": "ok", "added": len(new_trains)}
-
-@app.get("/api/v1/trains", response_model=List[Train], tags=["Trains"])
-async def get_all_trains():
-    """
-    Returns a list of all trains with their position (current_section_id, position_offset) and status.
-    """
-    if engine is None:
-        raise HTTPException(status_code=503, detail="Simulator not ready.")
-    return await engine.get_all_trains_state()
-
-# --- Endpoints WebSocket ---
+    return {"added": len(new_trains)}
 
 @app.websocket("/ws/traffic")
-async def websocket_traffic_endpoint(websocket: WebSocket):
-    """
-    Sends all train status at every simulation tick.
-    """
+async def ws_traffic(websocket: WebSocket):
     await manager.connect(websocket)
     try:
-        if engine:
-            trains_state = await engine.get_all_trains_state()
-            trains_data = [t.model_dump() for t in trains_state]
-            await websocket.send_json({"type": "initial_state", "trains": trains_data})
-
-        while True:
-            await websocket.receive_text() # not actually in use, send json only
-            
+        while True: await websocket.receive_text()
     except WebSocketDisconnect:
-        print(f"Client disconnected: {websocket.client}")
         manager.disconnect(websocket)
-    except Exception as e:
-        print(f"WebSocket error: {e}")
-        manager.disconnect(websocket)
-
 
 @app.get("/ws-debug", response_class=HTMLResponse)
 async def get_debug_ui():
@@ -241,18 +116,10 @@ async def get_debug_ui():
         websocket_debug_page = text_file.read()
     return websocket_debug_page
 
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    """Close DB pool on shutdown."""
-    global db_pool
-    try:
-        if db_pool is not None:
-            await db_pool.close()
-            print("DB pool closed")
-    except Exception as e:
-        print(f"Error closing DB pool: {e}")
+@app.get("/api/v1/sections")
+async def get_sections(): return await engine.get_sections_state()
+@app.get("/api/v1/connections")
+async def get_connections(): return await engine.get_connections_state()
 
 if __name__ == "__main__":
-    print("Starting backend on http://0.0.0.0:8000")
     uvicorn.run(app, host="0.0.0.0", port=8000)
