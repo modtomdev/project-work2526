@@ -2,17 +2,17 @@ FROM node:25-alpine3.22 AS builder
 
 WORKDIR /app
 
-COPY frontend/package*.json ./
+COPY frontend/dashboard/package*.json ./
 
 RUN npm install
 
-COPY frontend .
+COPY frontend/dashboard .
 
 RUN npm run build
 
 FROM nginx:alpine AS final
 
-COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY frontend/dashboard/nginx.conf /etc/nginx/conf.d/default.conf
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 

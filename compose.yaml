@@ -3,7 +3,7 @@ services:
     image: devtom8/pw:frontend1.0
     build:
       context: .
-      dockerfile: frontend/Dockerfile
+      dockerfile: frontend/dashboard/Dockerfile
     ports:
         - "80:80"
 
