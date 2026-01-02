@@ -151,7 +151,7 @@ async def api_get_wagons():
         raise HTTPException(status_code=503, detail="Simulator not ready")
     return await engine.get_wagons_state()
 
-@app.post("/api/v1/load_trains", tags=["Admin"])
+@app.post("/api/v1/load_trains", tags=["CSV Loader"])
 async def api_load_trains(file: UploadFile = File(...)):
     """Upload a CSV with trains and add them to the simulation.
     Expected CSV columns: train_id,train_code,train_type_id,current_section_id,position_offset,status
