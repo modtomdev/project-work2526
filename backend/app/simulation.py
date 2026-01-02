@@ -139,6 +139,16 @@ class SimulationEngine:
             if wagon.section_id and wagon.section_id in self.sections:
                 self.sections[wagon.section_id].is_occupied = True
 
+    def _get_occupied_blocks(self):
+        """Return a set of block_ids that currently contain at least one wagon."""
+        occupied = set()
+        for wagon in self.wagons.values():
+            if wagon.section_id:
+                block_id = self.section_to_block.get(wagon.section_id)
+                if block_id is not None:
+                    occupied.add(block_id)
+        return occupied
+
     async def add_trains(self, trains: List[Train]):
         """Add trains to the engine and create their wagons."""
         async with self.lock:
@@ -197,42 +207,38 @@ class SimulationEngine:
             return [w.model_copy() for w in self.wagons.values()]
 
     def _find_next_active_section(self, from_section_id: int) -> Optional[Section]:
-        """Find the next section reachable from `from_section_id` following an active connection."""
+        """Find the next section reachable from `from_section_id` by evaluating rail-block
+        occupancy. This method prefers the first outgoing connection whose target block
+        and the immediately-following block are free."""
         possible_connections = self.network.get(from_section_id, [])
-        active_connections = [c for c in possible_connections if c.is_active]
-
-        if not active_connections:
+        if not possible_connections:
             return None
-        
-        next_section_id = active_connections[0].to_section_id
-        return self.sections.get(next_section_id)
 
-    async def set_switch_position(self, switch_section_id: int, target_to_section_id: int):
-        """Set the active connection for a switch section (switch control)."""
-        async with self.lock:
-            switch_section = self.sections.get(switch_section_id)
+        occupied_blocks = self._get_occupied_blocks()
 
-            # Validation
-            if not switch_section:
-                raise ValueError(f"Section {switch_section_id} does not exist.")
-            if not switch_section.is_switch:
-                raise ValueError(f"Section {switch_section_id} is not a switch.")
-            if switch_section.is_occupied:
-                raise ValueError(f"Cannot move switch {switch_section_id}: section is occupied.")
+        for conn in possible_connections:
+            next_section = self.sections.get(conn.to_section_id)
+            if not next_section:
+                continue
 
-            possible_connections = self.network.get(switch_section_id, [])
-            target_found = False
+            # Check the block for the immediate next section
+            next_block = self.section_to_block.get(next_section.section_id)
+            if next_block is not None and next_block in occupied_blocks:
+                continue
 
-            for conn in possible_connections:
-                if conn.to_section_id == target_to_section_id:
-                    conn.is_active = True
-                    target_found = True
-                else:
-                    # Deactivate all other exits
-                    conn.is_active = False
-            
-            if not target_found:
-                raise ValueError(f"Target connection {target_to_section_id} is not valid for switch {switch_section_id}.")
+            # Also check one block further ahead (reserve the adjacent block)
+            further_conns = self.network.get(next_section.section_id, [])
+            if further_conns:
+                further_section = self.sections.get(further_conns[0].to_section_id)
+                if further_section:
+                    further_block = self.section_to_block.get(further_section.section_id)
+                    if further_block is not None and further_block in occupied_blocks:
+                        continue
+
+            # Accept this next_section as the next move target
+            return next_section
+
+        return None
 
     async def get_all_trains_state(self) -> List[Train]:
         """Thread-safe method to retrieve the state of all trains."""

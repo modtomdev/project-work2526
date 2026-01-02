@@ -5,7 +5,6 @@ import datetime
 class Section(BaseModel):
     """Represents a single track segment (section)."""
     section_id: int
-    is_switch: bool = False
     is_occupied: bool = False
 
 class Connection(BaseModel):
@@ -50,7 +49,3 @@ class ScheduleEntry(BaseModel):
     stop_id: int
     scheduled_arrival_time: Optional[datetime.datetime] = None
     scheduled_departure_time: Optional[datetime.datetime] = None
-
-class SwitchSetPayload(BaseModel):
-    """Payload for the API to set a switch target section."""
-    to_section_id: int

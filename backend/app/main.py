@@ -8,7 +8,7 @@ import csv
 from io import StringIO
 import asyncpg
 
-from models import Train, Section, Connection, TrainType, SwitchSetPayload, RailBlock
+from models import Train, Section, Connection, TrainType, RailBlock
 from simulation import SimulationEngine
 
 app = FastAPI(
@@ -76,11 +76,10 @@ async def simulation_loop(tick_rate_hz: int = 10, sim_speed_multiplier: int = 5)
 
 @app.on_event("startup")
 async def on_startup():
-    """Load initial data from DB (mock data here), initialize engine and start simulation loop."""
+    """Load initial data from DB, initialize engine and start simulation loop."""
     global engine
     global db_pool
-    # Replace this DSN with your Postgres connection string
-    DB_DSN = "<REPLACE_WITH_POSTGRES_DSN>"
+    DB_DSN = "postgres://myuser:mypassword@db:5432/database?option=mydb"
 
     try:
         db_pool = await asyncpg.create_pool(dsn=DB_DSN)
@@ -88,7 +87,6 @@ async def on_startup():
         print(f"Warning: could not connect to DB on startup: {e}. Falling back to empty dataset.")
         db_pool = None
     
-    # If we have a DB pool, load sections, connections, train_types, rail_blocks and stops from Postgres.
     sections = []
     connections = []
     train_types = []
@@ -97,7 +95,6 @@ async def on_startup():
 
     if db_pool is not None:
         async with db_pool.acquire() as conn:
-            # Load connections first (we'll derive switches from counts)
             try:
                 rows = await conn.fetch("SELECT from_section_id, to_section_id, is_active FROM section_connections")
                 for r in rows:
@@ -107,17 +104,7 @@ async def on_startup():
                         is_active=bool(r['is_active'])
                     ))
 
-                # Load sections
                 rows = await conn.fetch("SELECT section_id FROM sections")
-                # Determine which sections are switches (multiple outgoing connections)
-                out_counts = {}
-                for c in connections:
-                    out_counts[c.from_section_id] = out_counts.get(c.from_section_id, 0) + 1
-
-                for r in rows:
-                    sid = r['section_id']
-                    is_switch = out_counts.get(sid, 0) > 1
-                    sections.append(Section(section_id=sid, is_switch=is_switch))
 
                 # Load rail blocks
                 rows = await conn.fetch("SELECT block_id, block_name, section_id FROM rail_blocks")
@@ -156,12 +143,12 @@ async def on_startup():
     # Start with no trains loaded by default
     trains = []
 
-    # Initialize engine
     engine = SimulationEngine(sections, connections, train_types, trains, blocks=rail_blocks)
 
-    # Start simulation loop in background
     print("Starting simulation loop in background...")
     asyncio.create_task(simulation_loop(tick_rate_hz=10, sim_speed_multiplier=5))
+
+# --- Endpoints API REST ---
 
 @app.get("/api/v1/sections", tags=["Network"])
 async def api_get_sections():
@@ -214,8 +201,6 @@ async def api_load_trains(file: UploadFile = File(...)):
     await engine.add_trains(new_trains)
     return {"status": "ok", "added": len(new_trains)}
 
-# --- Endpoints API REST ---
-
 @app.get("/api/v1/trains", response_model=List[Train], tags=["Trains"])
 async def get_all_trains():
     """
@@ -224,21 +209,6 @@ async def get_all_trains():
     if engine is None:
         raise HTTPException(status_code=503, detail="Simulator not ready.")
     return await engine.get_all_trains_state()
-
-@app.post("/api/v1/switches/{section_id}/set", tags=["Switches"])
-async def set_switch(section_id: int, payload: SwitchSetPayload):
-    """
-    Sets the specified rail switch on.
-    """
-    if engine is None:
-        raise HTTPException(status_code=503, detail="Simulator not ready.")
-        
-    try:
-        await engine.set_switch_position(section_id, payload.to_section_id)
-        return {"status": "ok", "message": f"Switch {section_id} set to {payload.to_section_id}"}
-    except ValueError as e:
-        # Throws if switch is occupied or section is not valid
-        raise HTTPException(status_code=400, detail=str(e))
 
 # --- Endpoints WebSocket ---
 
