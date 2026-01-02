@@ -16,10 +16,8 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Istanza globale del motore (verrà inizializzata allo startup)
 engine: Optional[SimulationEngine] = None
 
-# --- Gestore WebSocket ---
 class ConnectionManager:
     """Manage active WebSocket connections for broadcasting state updates."""
     def __init__(self):
@@ -33,61 +31,52 @@ class ConnectionManager:
         self.active_connections.remove(websocket)
 
     async def broadcast_json(self, data: dict):
-        """Invia dati JSON a tutti i client connessi."""
+        """Sends JSON to all connected devices."""
         for connection in self.active_connections:
             await connection.send_json(data)
 
 manager = ConnectionManager()
 
-
-# --- Loop di Simulazione (Task in Background) ---
 async def simulation_loop(tick_rate_hz: int = 10, sim_speed_multiplier: int = 5):
     """Main loop that advances the simulation engine and broadcasts updates."""
     if engine is None:
         print("Error: engine not initialized.")
         return
 
-    # dt è l'intervallo di tempo *reale* tra i tick
+    # dt is the actual time interval between ticks
     real_dt = 1.0 / tick_rate_hz
-    # sim_dt è l'intervallo di tempo *simulato* (accelerato)
+    # sim_dt is the simulated time interval between ticks (can be accelerated)
     sim_dt = real_dt * sim_speed_multiplier
 
     while True:
         try:
-            # 1. Avanza la simulazione
             await engine.run_tick(sim_dt)
 
-            # 2. Ottieni lo stato aggiornato
             trains_state = await engine.get_all_trains_state()
             wagons_state = await engine.get_wagons_state()
             
-            # 3. Serializza i dati per il JSON
+            # JSON serialization
             trains_data = [t.model_dump() for t in trains_state]
             wagons_data = [w.model_dump() for w in wagons_state]
 
-            # 4. Invia via WebSocket
+            # WS send
             await manager.broadcast_json({
                 "type": "train_update",
                 "trains": trains_data,
                 "wagons": wagons_data
             })
             
-            # 5. Attendi il prossimo tick
             await asyncio.sleep(real_dt)
             
         except Exception as e:
             print(f"Simulation loop error: {e}")
-            # Pausa prima di riprovare
             await asyncio.sleep(1)
 
-
-# --- Eventi di Avvio e Spegnimento ---
 @app.on_event("startup")
 async def on_startup():
-    """Load initial data (sample data here), initialize engine and start simulation loop."""
+    """Load initial data from DB (mock data here), initialize engine and start simulation loop."""
     global engine
     
-    # --- Dati Fittizi per la Simulazione (mappa semplice con 2 ingressi e 4 piattaforme centrali) ---
     sections = [
         Section(section_id=1, x=0, y=2),  # left_in
         Section(section_id=2, is_switch=True, x=1, y=2),  # left_switch
@@ -111,19 +100,16 @@ async def on_startup():
         Connection(from_section_id=3, to_section_id=5, is_active=True),
         Connection(from_section_id=4, to_section_id=5, is_active=True),
 
-        # From merge (5) to center platforms (this section behaves as a switch)
         Connection(from_section_id=5, to_section_id=6, is_active=True),
         Connection(from_section_id=5, to_section_id=7, is_active=False),
         Connection(from_section_id=5, to_section_id=8, is_active=False),
         Connection(from_section_id=5, to_section_id=9, is_active=False),
 
-        # Each center platform goes to right switch
         Connection(from_section_id=6, to_section_id=10, is_active=True),
         Connection(from_section_id=7, to_section_id=10, is_active=True),
         Connection(from_section_id=8, to_section_id=10, is_active=True),
         Connection(from_section_id=9, to_section_id=10, is_active=True),
 
-        # Right side branches
         Connection(from_section_id=10, to_section_id=11, is_active=True),
         Connection(from_section_id=10, to_section_id=12, is_active=False),
         Connection(from_section_id=11, to_section_id=13, is_active=True),
@@ -147,13 +133,11 @@ async def on_startup():
     print("Starting simulation loop in background...")
     asyncio.create_task(simulation_loop(tick_rate_hz=10, sim_speed_multiplier=5))
 
-    # --- Nuovi Endpoint: Sezioni, Connessioni, Caricamento CSV ---
 @app.get("/api/v1/sections", tags=["Network"])
 async def api_get_sections():
     if engine is None:
         raise HTTPException(status_code=503, detail="Simulator not ready")
     return await engine.get_sections_state()
-
 
 @app.get("/api/v1/connections", tags=["Network"])
 async def api_get_connections():
@@ -161,22 +145,19 @@ async def api_get_connections():
         raise HTTPException(status_code=503, detail="Simulator not ready")
     return await engine.get_connections_state()
 
-
 @app.get("/api/v1/wagons", tags=["Wagons"])
 async def api_get_wagons():
     if engine is None:
         raise HTTPException(status_code=503, detail="Simulator not ready")
     return await engine.get_wagons_state()
 
-
 @app.post("/api/v1/load_trains", tags=["Admin"])
 async def api_load_trains(file: UploadFile = File(...)):
     """Upload a CSV with trains and add them to the simulation.
-
     Expected CSV columns: train_id,train_code,train_type_id,current_section_id,position_offset,status
     """
     if engine is None:
-        raise HTTPException(status_code=503, detail="Simulatore non pronto")
+        raise HTTPException(status_code=503, detail="Simulator not ready")
 
     content = await file.read()
     try:
@@ -208,8 +189,7 @@ async def api_load_trains(file: UploadFile = File(...)):
 @app.get("/api/v1/trains", response_model=List[Train], tags=["Trains"])
 async def get_all_trains():
     """
-    Restituisce una lista di tutti i treni con la loro posizione
-    (current_section_id, position_offset) e il loro stato.
+    Returns a list of all trains with their position (current_section_id, position_offset) and status.
     """
     if engine is None:
         raise HTTPException(status_code=503, detail="Simulator not ready.")
@@ -218,8 +198,7 @@ async def get_all_trains():
 @app.post("/api/v1/switches/{section_id}/set", tags=["Switches"])
 async def set_switch(section_id: int, payload: SwitchSetPayload):
     """
-    Imposta la connessione attiva per lo scambio specificato,
-    modificando lo stato all'interno del motore di simulazione.
+    Sets the specified rail switch on.
     """
     if engine is None:
         raise HTTPException(status_code=503, detail="Simulator not ready.")
@@ -228,16 +207,15 @@ async def set_switch(section_id: int, payload: SwitchSetPayload):
         await engine.set_switch_position(section_id, payload.to_section_id)
         return {"status": "ok", "message": f"Switch {section_id} set to {payload.to_section_id}"}
     except ValueError as e:
-        # Errore se lo scambio è occupato o la sezione non è valida
+        # Throws if switch is occupied or section is not valid
         raise HTTPException(status_code=400, detail=str(e))
 
-# --- Endpoints WebSocket
+# --- Endpoints WebSocket ---
 
 @app.websocket("/ws/traffic")
 async def websocket_traffic_endpoint(websocket: WebSocket):
     """
-    Endpoint WebSocket che invia lo stato di tutti i treni
-    ad ogni tick di simulazione.
+    Sends all train status at every simulation tick.
     """
     await manager.connect(websocket)
     try:
@@ -259,7 +237,6 @@ async def websocket_traffic_endpoint(websocket: WebSocket):
 
 @app.get("/ws-debug", response_class=HTMLResponse)
 async def get_debug_ui():
-    # Serve the debug HTML page
     with open('./websocket-debug.html', "r") as text_file:
         websocket_debug_page = text_file.read()
     return websocket_debug_page

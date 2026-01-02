@@ -16,7 +16,6 @@ class SimulationEngine:
         blocks: List[RailBlock] = [],
         schedules: Dict[int, List[ScheduleEntry]] = {}
     ):
-        # Use dicts for O(1) access by ID
         self.sections: Dict[int, Section] = {s.section_id: s for s in sections}
         self.train_types: Dict[int, TrainType] = {tt.train_type_id: tt for tt in train_types}
         self.trains: Dict[int, Train] = {t.train_id: t for t in trains}
@@ -48,7 +47,7 @@ class SimulationEngine:
         wagon_id_counter = 1000
         for train in self.trains.values():
             num_wagons = getattr(train, 'num_wagons', 1)
-            num_wagons = max(1, min(15, num_wagons))  # Clamp tra 1 e 15
+            num_wagons = max(1, min(15, num_wagons))
             
             self.train_wagons[train.train_id] = []
             for wagon_idx in range(num_wagons):
@@ -69,7 +68,7 @@ class SimulationEngine:
         for section in self.sections.values():
             section.is_occupied = False
         
-        # Marca le sezioni come occupate se contengono almeno un vagone
+        # Mark section as occupied if they contain a wagon
         occupied_sections = set()
         for wagon in self.wagons.values():
             if wagon.section_id:
@@ -81,9 +80,7 @@ class SimulationEngine:
 
     async def run_tick(self, dt: float):
         """
-        Avanza la simulazione di un intervallo 'dt' (in secondi).
-        Questo è il ciclo principale del motore.
-        Sposta i vagoni individuali invece che i treni interi.
+        Advances the simulation of a 'dt' interval.
         """
         async with self.lock:
             for train in self.trains.values():
@@ -94,7 +91,7 @@ class SimulationEngine:
                 speed_sec_per_sec = train_type.cruising_speed / 60.0
                 distance_moved = speed_sec_per_sec * dt
 
-                # Sposta i vagoni in ordine inverso (dalla coda alla testa)
+                # Move wagons in a reversed order (from tail to head)
                 wagon_ids = self.train_wagons.get(train.train_id, [])
                 for wagon_id in reversed(wagon_ids):
                     wagon = self.wagons[wagon_id]
@@ -109,11 +106,9 @@ class SimulationEngine:
                         if not current_section:
                             break
 
-                        # Find next active section
                         next_section = self._find_next_active_section(current_section.section_id)
 
                         if not next_section:
-                            # Fine del binario
                             wagon.position_offset = 0.99
                             train.status = 'Stopped'
                             break
@@ -124,7 +119,7 @@ class SimulationEngine:
                             train.status = 'Stopped'
                             break
 
-                        # Transizione approvata
+                        # Transition approved
                         wagon.position_offset -= 1.0
                         wagon.section_id = next_section.section_id
 
@@ -207,10 +202,8 @@ class SimulationEngine:
         active_connections = [c for c in possible_connections if c.is_active]
 
         if not active_connections:
-            return None # Nessun percorso attivo
+            return None
         
-        # Nota: si assume che solo una connessione possa essere attiva
-        # per qualsiasi sezione (incluso lo scambio)
         next_section_id = active_connections[0].to_section_id
         return self.sections.get(next_section_id)
 
@@ -219,7 +212,7 @@ class SimulationEngine:
         async with self.lock:
             switch_section = self.sections.get(switch_section_id)
 
-            # Validazione
+            # Validation
             if not switch_section:
                 raise ValueError(f"Section {switch_section_id} does not exist.")
             if not switch_section.is_switch:
@@ -244,5 +237,4 @@ class SimulationEngine:
     async def get_all_trains_state(self) -> List[Train]:
         """Thread-safe method to retrieve the state of all trains."""
         async with self.lock:
-            # Ritorna una copia per evitare problemi di mutazione
             return [train.model_copy() for train in self.trains.values()]
