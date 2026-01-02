@@ -3,13 +3,9 @@ from typing import Dict, List, Optional
 from models import (
     Section, Connection, TrainType, Train, Wagon, ScheduleEntry, RailBlock
 )
-from datetime import datetime, timedelta
 
 class SimulationEngine:
-    """
-    Motore di simulazione disaccoppiato che gestisce la logica
-    del movimento dei treni e la sicurezza.
-    """
+    """Decoupled simulation engine that handles train movement and safety logic."""
     
     def __init__(
         self,
@@ -20,35 +16,35 @@ class SimulationEngine:
         blocks: List[RailBlock] = [],
         schedules: Dict[int, List[ScheduleEntry]] = {}
     ):
-        # Utilizzo di dizionari per un accesso O(1) rapido tramite ID
+        # Use dicts for O(1) access by ID
         self.sections: Dict[int, Section] = {s.section_id: s for s in sections}
         self.train_types: Dict[int, TrainType] = {tt.train_type_id: tt for tt in train_types}
         self.trains: Dict[int, Train] = {t.train_id: t for t in trains}
         self.schedules: Dict[int, List[ScheduleEntry]] = schedules
         
-        # Mappa per trovare le sezioni di un blocco (non usata in questa logica base)
+        # Map section_id -> block_id (optional)
         self.section_to_block: Dict[int, int] = {b.section_id: b.block_id for b in blocks}
         
-        # Costruisce il grafo della rete per una navigazione efficiente
+        # Build adjacency list for the network graph
         self.network: Dict[int, List[Connection]] = {}
         for conn in connections:
             if conn.from_section_id not in self.network:
                 self.network[conn.from_section_id] = []
             self.network[conn.from_section_id].append(conn)
 
-        # Inizializza i vagoni per ogni treno
+        # Initialize wagons for each train
         self.wagons: Dict[int, Wagon] = {}  # wagon_id -> Wagon
         self.train_wagons: Dict[int, List[int]] = {}  # train_id -> [wagon_ids]
         self._initialize_wagons()
 
-        # Inizializza l'occupazione delle sezioni
+        # Initialize section occupancy
         self._initialize_occupancy()
 
-        # Lock per la concorrenza tra il tick e le chiamate API
+        # Async lock to protect engine state
         self.lock = asyncio.Lock()
 
     def _initialize_wagons(self):
-        """Crea vagoni per ogni treno. Ogni treno ha num_wagons vagoni."""
+        """Create Wagon objects for each train based on `num_wagons`."""
         wagon_id_counter = 1000
         for train in self.trains.values():
             num_wagons = getattr(train, 'num_wagons', 1)
@@ -68,8 +64,8 @@ class SimulationEngine:
                 wagon_id_counter += 1
 
     def _initialize_occupancy(self):
-        """Imposta lo stato 'is_occupied' iniziale basato su wagons."""
-        # Reset occupazione
+        """Set initial `is_occupied` on sections using current wagon positions."""
+        # Reset occupancy
         for section in self.sections.values():
             section.is_occupied = False
         
@@ -107,13 +103,13 @@ class SimulationEngine:
 
                     wagon.position_offset += distance_moved
 
-                    # Logica di transizione tra sezioni
+                    # Transition logic between sections
                     while wagon.position_offset >= 1.0:
                         current_section = self.sections.get(wagon.section_id)
                         if not current_section:
                             break
 
-                        # Trova prossima sezione
+                        # Find next active section
                         next_section = self._find_next_active_section(current_section.section_id)
 
                         if not next_section:
@@ -122,7 +118,7 @@ class SimulationEngine:
                             train.status = 'Stopped'
                             break
 
-                        # Controllo occupazione
+                        # If next section is occupied stop the train
                         if next_section.is_occupied:
                             wagon.position_offset = 0.99
                             train.status = 'Stopped'
@@ -132,25 +128,24 @@ class SimulationEngine:
                         wagon.position_offset -= 1.0
                         wagon.section_id = next_section.section_id
 
-                # Aggiorna lo stato dei treni e le occupazioni
+                # Update section occupancy and sync train position to first wagon
                 self._update_section_occupancy()
-                # Aggiorna la posizione del treno alla posizione del primo vagone
                 if wagon_ids:
                     first_wagon = self.wagons[wagon_ids[0]]
                     train.current_section_id = first_wagon.section_id or train.current_section_id
                     train.position_offset = first_wagon.position_offset
 
     def _update_section_occupancy(self):
-        """Aggiorna lo stato is_occupied di tutte le sezioni."""
+        """Update `is_occupied` flag for all sections based on wagon positions."""
         for section in self.sections.values():
             section.is_occupied = False
-        
+
         for wagon in self.wagons.values():
             if wagon.section_id and wagon.section_id in self.sections:
                 self.sections[wagon.section_id].is_occupied = True
 
     async def add_trains(self, trains: List[Train]):
-        """Aggiunge una lista di treni al motore e crea i loro vagoni."""
+        """Add trains to the engine and create their wagons."""
         async with self.lock:
             wagon_id_counter = max([w.wagon_id for w in self.wagons.values()] or [1000], default=1000) + 1
             
@@ -159,7 +154,7 @@ class SimulationEngine:
                     continue
                 self.trains[t.train_id] = t
                 
-                # Crea vagoni per questo treno
+                # Create wagons for this train
                 num_wagons = max(1, min(15, getattr(t, 'num_wagons', 1)))
                 self.train_wagons[t.train_id] = []
                 
@@ -178,12 +173,12 @@ class SimulationEngine:
                 self._update_section_occupancy()
 
     async def get_sections_state(self) -> List[Section]:
-        """Ritorna lo stato di tutte le sezioni (occupazione, coords)."""
+        """Return state of all sections (including occupancy and coords)."""
         async with self.lock:
             return [s.model_copy() for s in self.sections.values()]
 
     async def get_connections_state(self) -> List[Connection]:
-        """Ritorna tutte le connessioni del grafo con il loro stato is_active."""
+        """Return all network connections with their `is_active` state."""
         async with self.lock:
             conns: List[Connection] = []
             for out_list in self.network.values():
@@ -192,9 +187,8 @@ class SimulationEngine:
             return [c.model_copy() for c in conns]
 
     async def get_blocks_state(self) -> List[RailBlock]:
-        """Ritorna una lista di blocchi (se presenti)."""
-        # Questo motore mantiene solo mapping se passato in init
-        # Ricostruisce oggetti RailBlock dalle mappe disponibili
+        """Return a list of RailBlock objects if block mapping was provided."""
+        # This engine only keeps a mapping if blocks were passed into __init__
         async with self.lock:
             blocks: List[RailBlock] = []
             # self.section_to_block maps section_id -> block_id
@@ -203,16 +197,12 @@ class SimulationEngine:
             return blocks
 
     async def get_wagons_state(self) -> List[Wagon]:
-        """Ritorna lo stato di tutti i vagoni."""
+        """Return state of all wagons."""
         async with self.lock:
             return [w.model_copy() for w in self.wagons.values()]
 
     def _find_next_active_section(self, from_section_id: int) -> Optional[Section]:
-        """
-        Trova la prossima sezione collegata che ha una connessione 'is_active'.
-        Per le sezioni normali, ci sarà solo una.
-        Per gli scambi, ne troverà una sola (quella impostata).
-        """
+        """Find the next section reachable from `from_section_id` following an active connection."""
         possible_connections = self.network.get(from_section_id, [])
         active_connections = [c for c in possible_connections if c.is_active]
 
@@ -225,20 +215,17 @@ class SimulationEngine:
         return self.sections.get(next_section_id)
 
     async def set_switch_position(self, switch_section_id: int, target_to_section_id: int):
-        """
-        Imposta la connessione attiva per una sezione di scambio.
-        Questa è la logica di controllo degli scambi.
-        """
+        """Set the active connection for a switch section (switch control)."""
         async with self.lock:
             switch_section = self.sections.get(switch_section_id)
 
             # Validazione
             if not switch_section:
-                raise ValueError(f"La sezione {switch_section_id} non esiste.")
+                raise ValueError(f"Section {switch_section_id} does not exist.")
             if not switch_section.is_switch:
-                raise ValueError(f"La sezione {switch_section_id} non è uno scambio.")
+                raise ValueError(f"Section {switch_section_id} is not a switch.")
             if switch_section.is_occupied:
-                raise ValueError(f"Impossibile muovere lo scambio {switch_section_id}: è occupato.")
+                raise ValueError(f"Cannot move switch {switch_section_id}: section is occupied.")
 
             possible_connections = self.network.get(switch_section_id, [])
             target_found = False
@@ -248,14 +235,14 @@ class SimulationEngine:
                     conn.is_active = True
                     target_found = True
                 else:
-                    # Disattiva tutte le altre uscite
+                    # Deactivate all other exits
                     conn.is_active = False
             
             if not target_found:
-                raise ValueError(f"Connessione a {target_to_section_id} non valida per lo scambio {switch_section_id}.")
+                raise ValueError(f"Target connection {target_to_section_id} is not valid for switch {switch_section_id}.")
 
     async def get_all_trains_state(self) -> List[Train]:
-        """Metodo thread-safe per ottenere lo stato di tutti i treni."""
+        """Thread-safe method to retrieve the state of all trains."""
         async with self.lock:
             # Ritorna una copia per evitare problemi di mutazione
             return [train.model_copy() for train in self.trains.values()]

@@ -15,22 +15,22 @@ VALUES
 
 INSERT INTO rail_blocks (block_name, section_id)
 VALUES
-('Blocco A', 1),
-('Blocco B', 2),
-('Blocco C', 3),
-('Blocco D', 4),
-('Blocco E', 5),
-('Blocco F', 6),
-('Blocco G', 7),
-('Blocco H', 8),
-('Blocco I', 9),
-('Blocco J', 10);
+('Block A', 1),
+('Block B', 2),
+('Block C', 3),
+('Block D', 4),
+('Block E', 5),
+('Block F', 6),
+('Block G', 7),
+('Block H', 8),
+('Block I', 9),
+('Block J', 10);
 
 INSERT INTO train_types (type_name, priority_index, cruising_speed)
 VALUES
-('regionale', 1, 0.6),
-('freccia', 2, 1.0),
-('veloce', 3, 0.8),
+('regional', 1, 0.6),
+('express', 2, 1.0),
+('fast', 3, 0.8),
 ('cargo', 4, 0.4);
 
 INSERT INTO trains (train_code, train_type_id, current_section_id, direction, requires_maintenance)
@@ -63,8 +63,8 @@ VALUES
 ('Bologna Centrale', 2, 2),
 ('Firenze Santa Maria Novella', 3, 3),
 ('Roma Termini', 5, 4),
-('Deposito Nord', 9, 5),
-('Deposito Sud', 10, 6);
+('North Depot', 9, 5),
+('South Depot', 10, 6);
 
 INSERT INTO train_schedules (train_id, stop_id, scheduled_arrival_time, scheduled_departure_time)
 VALUES
