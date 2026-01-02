@@ -1,0 +1,37 @@
+{
+  "type": "train_update",
+  "trains": [
+    {
+      "train_id": 101,
+      "train_code": "R_101",
+      "train_type_id": 1,
+      "current_section_id": 13,
+      "position_offset": 0.99,
+      "status": "Stopped",
+      "num_wagons": 3
+    }
+  ],
+  "wagons": [
+    {
+      "wagon_id": 1000,
+      "train_id": 101,
+      "wagon_index": 0,
+      "section_id": 13,
+      "position_offset": 0.99
+    },
+    {
+      "wagon_id": 1001,
+      "train_id": 101,
+      "wagon_index": 1,
+      "section_id": 13,
+      "position_offset": 0.99
+    },
+    {
+      "wagon_id": 1002,
+      "train_id": 101,
+      "wagon_index": 2,
+      "section_id": 13,
+      "position_offset": 0.99
+    }
+  ]
+}
