@@ -226,8 +226,8 @@ VALUES
 
 INSERT INTO train_types (type_name, priority_index, cruising_speed)
 VALUES
-('Regionale', 2, 5.0),
-('Alta velocità', 1, 10.0);
+('Regionale', 2, 15.0),
+('Alta velocità', 1, 25.0);
 
 INSERT INTO stops (stop_name, section_id)
 VALUES
