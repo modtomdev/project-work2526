@@ -1,0 +1,2 @@
+train_id,train_code,train_type_id,current_section_id,num_wagons,desired_stop
+101,RV101,1,0,5,2
