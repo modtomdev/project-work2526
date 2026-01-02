@@ -1,113 +1,112 @@
 <!DOCTYPE html>
 <html>
     <head>
-        <title>WebSocket Debugger</title>
+        <title>WebSocket Viewer</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
         <style>
             #log { 
-                height: 400px; 
+                height: 600px; 
                 overflow-y: scroll; 
                 background: #f8f9fa; 
                 border: 1px solid #dee2e6; 
-                padding: 10px; 
+                padding: 15px; 
                 font-family: monospace; 
-                /* Questa riga permette di vedere l'indentazione del JSON */
+                font-size: 0.9rem;
                 white-space: pre-wrap; 
             }
-            .msg-sent { color: #0d6efd; }
             .msg-received { color: #198754; }
             .msg-error { color: #dc3545; }
+            .msg-info { color: #6c757d; font-style: italic; }
         </style>
     </head>
     <body class="container py-5">
-        <h2 class="mb-4">WebSocket Tester</h2>
+        <h2 class="mb-4">WebSocket Monitor</h2>
         
-        <div class="row mb-3">
-            <div class="col-md-8">
-                <div class="input-group">
-                    <span class="input-group-text">ws://</span>
-                    <input type="text" id="wsUrl" class="form-control" value="">
-                    <button class="btn btn-success" onclick="connect()">Connect</button>
-                    <button class="btn btn-danger" onclick="disconnect()">Disconnect</button>
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row align-items-center">
+                    <div class="col-md-9">
+                        <div class="input-group">
+                            <span class="input-group-text">ws://</span>
+                            <input type="text" id="wsUrl" class="form-control" placeholder="host:port/path">
+                            <button class="btn btn-success" onclick="connect()">Connect</button>
+                            <button class="btn btn-danger" onclick="disconnect()">Disconnect</button>
+                        </div>
+                    </div>
+                    <div class="col-md-3 text-end">
+                        <span id="status" class="badge bg-secondary fs-6">Disconnected</span>
+                    </div>
                 </div>
-            </div>
-            <div class="col-md-4">
-                <span id="status" class="badge bg-secondary">Disconnected</span>
             </div>
         </div>
 
         <div class="row">
-            <div class="col-md-6">
-                <h5>Send Message</h5>
-                <form onsubmit="sendMessage(event)">
-                    <textarea id="messageText" class="form-control mb-2" rows="3" placeholder='{"action": "hello"}'></textarea>
-                    <button class="btn btn-primary w-100">Send</button>
-                </form>
-            </div>
-            <div class="col-md-6">
-                <h5>Event Log <button class="btn btn-sm btn-outline-secondary float-end" onclick="clearLog()">Clear</button></h5>
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h5>Incoming Data Stream</h5>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="clearLog()">Clear Log</button>
+                </div>
                 <div id="log"></div>
             </div>
         </div>
 
         <script>
             var ws = null;
+            // Set default URL based on browser window
             document.getElementById('wsUrl').value = window.location.host + "/ws/traffic";
 
             function log(msg, type) {
                 var logDiv = document.getElementById('log');
                 var div = document.createElement('div');
-                div.className = type;
-                div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+                div.className = type + " mb-1 border-bottom pb-1";
+                
+                var time = new Date().toLocaleTimeString();
+                
+                if (msg.includes('\n')) {
+                    div.innerHTML = `<span class="fw-bold">[${time}]</span><br>${msg}`;
+                } else {
+                    div.innerHTML = `<span class="fw-bold">[${time}]</span> ${msg}`;
+                }
+
                 logDiv.appendChild(div);
                 logDiv.scrollTop = logDiv.scrollHeight;
             }
 
             function connect() {
-                var url = "ws://" + document.getElementById("wsUrl").value;
+                var urlValue = document.getElementById("wsUrl").value;
+                var url = urlValue.startsWith("ws://") ? urlValue : "ws://" + urlValue;
+
                 ws = new WebSocket(url);
                 
                 ws.onopen = function() {
-                    document.getElementById("status").className = "badge bg-success";
+                    document.getElementById("status").className = "badge bg-success fs-6";
                     document.getElementById("status").textContent = "Connected";
-                    log("Connection established", "text-dark");
+                    log("Connection established listening to " + url, "msg-info");
                 };
                 
-                // MODIFICA QUI: Formattazione JSON
                 ws.onmessage = function(event) {
                     var data = event.data;
                     try {
-                        // Prova a parsare la stringa come JSON
                         var json = JSON.parse(data);
-                        // Se ha successo, la riformatta con 2 spazi di indentazione
                         data = JSON.stringify(json, null, 2);
                     } catch (e) {
-                        // Se non è un JSON valido, lascia la stringa originale
-                        console.log("Messaggio non JSON o errore di parsing");
                     }
-                    log("RX: " + data, "msg-received");
+                    log(data, "msg-received");
                 };
 
                 ws.onclose = function() {
-                    document.getElementById("status").className = "badge bg-danger";
+                    document.getElementById("status").className = "badge bg-danger fs-6";
                     document.getElementById("status").textContent = "Disconnected";
                     log("Connection closed", "msg-error");
+                };
+                
+                ws.onerror = function(err) {
+                    log("Error detected", "msg-error");
                 };
             }
 
             function disconnect() {
                 if(ws) ws.close();
-            }
-
-            function sendMessage(event) {
-                event.preventDefault();
-                var input = document.getElementById("messageText");
-                if(ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(input.value);
-                    log("TX: " + input.value, "msg-sent");
-                } else {
-                    alert("Not connected!");
-                }
             }
             
             function clearLog() {
