@@ -155,6 +155,24 @@ async def api_load_trains(file: UploadFile = File(...)):
     await engine.add_trains(new_trains)
     return {"added": len(new_trains)}
 
+@app.delete("/api/v1/trains")
+async def clear_all_trains():
+    """Removes all trains and wagons from the simulation."""
+    if not engine: 
+        raise HTTPException(status_code=503, detail="Engine not ready")
+    
+    # Acquire lock to safely modify state while simulation loop is running
+    async with engine.lock:
+        engine.trains.clear()
+        engine.wagons.clear()
+        engine.train_wagons.clear()
+        engine.train_history.clear()
+        
+        # Reset track occupancy
+        engine._update_section_occupancy()
+        
+    return {"message": "All trains cleared", "count": 0}
+
 @app.websocket("/ws/traffic")
 async def ws_traffic(websocket: WebSocket):
     await manager.connect(websocket)

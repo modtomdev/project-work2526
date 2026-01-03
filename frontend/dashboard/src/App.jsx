@@ -1,7 +1,10 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 
 // --- CONFIGURATION ---
 const API_URL = "http://localhost:8000/api/network";
+const UPLOAD_URL = "http://localhost:8000/api/v1/load_trains";
+const CLEAR_URL = "http://localhost:8000/api/v1/trains"; // New Endpoint
+const WS_URL = "ws://localhost:8000/ws/traffic"; 
 const GRID_SIZE = 40;
 const TRACK_WIDTH = 6;
 const HIT_AREA_WIDTH = 40;
@@ -15,25 +18,17 @@ const ROW_CONFIG = [
 ];
 
 const DIAGONAL_CHAINS = [
-  // Row 0 <-> Row 1
   [1000, 1001, 2, "end", 105, "start"],
   [1010, 1011, 10, "end", 113, "start"],
   [1020, 1021, 18, "end", 121, "start"],
   [1030, 1031, 33, "start", 130, "end"],
   [1040, 1041, 41, "start", 138, "end"],
-
-  // Row 1 <-> Row 2
-  [2000, 2001, 106, "end", 200, "start"], // Connects to START of 200
+  [2000, 2001, 106, "end", 200, "start"],
   [2010, 2011, 110, "end", 204, "start"],
   [2020, 2021, 118, "end", 212, "start"],
   [2030, 2031, 136, "start", 224, "end"],
-
-  // Row 2 <-> Row 3
   [3010, 3011, 208, "end", 300, "start"],
   [3020, 3021, 224, "start", 310, "end"],
-
-  // SPUR (Section 3000/3001)
-  // FIX: Connects to END of 200, creating separation from 2001 (which is at START)
   [3000, 3001, 200, "end", "SPUR_RIGHT", "none"],
 ];
 
@@ -46,43 +41,120 @@ const stringToColor = (str) => {
   return `hsl(${Math.abs(hash) % 360}, 70%, 45%)`;
 };
 
-const TrainMapFastAPI = () => {
+const TrainMapLive = () => {
+  // --- STATE ---
   const [sectionMap, setSectionMap] = useState(new Map());
   const [loading, setLoading] = useState(true);
-
   const [hoveredBlock, setHoveredBlock] = useState(null);
-  const [activeWagon, setActiveWagon] = useState({ id: "W1", segmentId: 0 });
-  const [isRunning, setIsRunning] = useState(false);
+  const [activeTrains, setActiveTrains] = useState([]); 
+  const [wsStatus, setWsStatus] = useState("DISCONNECTED");
+  
+  // File Upload State
+  const fileInputRef = useRef(null);
+  const [uploadStatus, setUploadStatus] = useState("");
 
-  // 1. FETCH DATA
+  // --- 1. FETCH STATIC TOPOLOGY ---
   useEffect(() => {
     fetch(API_URL)
       .then((res) => res.json())
       .then((data) => {
         const map = new Map();
-        data.sections.forEach((sec) => {
-          map.set(sec.section_id, sec.block_name);
-        });
+        data.sections.forEach((sec) => map.set(sec.section_id, sec.block_name));
         setSectionMap(map);
         setLoading(false);
       })
       .catch((err) => console.error("API Error:", err));
   }, []);
 
-  // 2. BUILD VISUALS
+  // --- 2. WEBSOCKET CONNECTION ---
+  useEffect(() => {
+    const ws = new WebSocket(WS_URL);
+
+    ws.onopen = () => {
+      console.log("Connected to Traffic Stream");
+      setWsStatus("CONNECTED");
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "tick") {
+          setActiveTrains(data.trains);
+        }
+      } catch (e) {
+        console.error("WS Parse Error", e);
+      }
+    };
+
+    ws.onclose = () => setWsStatus("DISCONNECTED");
+    ws.onerror = (err) => {
+      console.error("WS Error", err);
+      setWsStatus("ERROR");
+    };
+
+    return () => ws.close();
+  }, []);
+
+  // --- 3. HANDLERS ---
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    setUploadStatus("Uploading...");
+
+    try {
+      const response = await fetch(UPLOAD_URL, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setUploadStatus(`Success: Added ${result.added} trains`);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      } else {
+        setUploadStatus("Upload Failed");
+      }
+    } catch (error) {
+      console.error("Upload Error:", error);
+      setUploadStatus("Error uploading file");
+    }
+    setTimeout(() => setUploadStatus(""), 3000);
+  };
+
+  const handleClearTrains = async () => {
+    if (!window.confirm("Are you sure you want to remove ALL trains?")) return;
+    
+    try {
+      const response = await fetch(CLEAR_URL, { method: "DELETE" });
+      if (response.ok) {
+        setUploadStatus("All trains cleared");
+        setActiveTrains([]); // Immediate UI update (optional, WS will also sync)
+      } else {
+        setUploadStatus("Failed to clear trains");
+      }
+    } catch (error) {
+      console.error("Clear Error:", error);
+      setUploadStatus("Error clearing trains");
+    }
+    setTimeout(() => setUploadStatus(""), 3000);
+  };
+
+  // --- 4. BUILD VISUAL SEGMENTS ---
   const segments = useMemo(() => {
     const segs = [];
     const nodeMap = new Map();
     const addNode = (key, x, y) =>
       nodeMap.set(key, { x: x * GRID_SIZE + 50, y: y * GRID_SIZE + 50 });
 
-    // A. Horizontal Rows
     ROW_CONFIG.forEach((row) => {
       for (let i = row.startId; i <= row.endId; i++) {
         const xStart = row.xOffset + (i - row.startId);
         addNode(`${i}_start`, xStart, row.y);
         addNode(`${i}_end`, xStart + 1, row.y);
-
         segs.push({
           id: i,
           block: sectionMap.get(i) || "UNKNOWN",
@@ -95,104 +167,99 @@ const TrainMapFastAPI = () => {
       }
     });
 
-    // B. Diagonals & Spurs
-    DIAGONAL_CHAINS.forEach(
-      ([seg1, seg2, fromId, fromAnchor, toId, toAnchor]) => {
-        const startPt = nodeMap.get(`${fromId}_${fromAnchor}`);
-        let endPt = null;
+    DIAGONAL_CHAINS.forEach(([seg1, seg2, fromId, fromAnchor, toId, toAnchor]) => {
+      const startPt = nodeMap.get(`${fromId}_${fromAnchor}`);
+      let endPt = null;
 
-        // Handle SPUR logic
-        if (toId === "SPUR_LEFT") {
-          endPt = {
-            x: startPt.x - GRID_SIZE * 0.8,
-            y: startPt.y + GRID_SIZE * 0.8,
-          };
-        } else if (toId === "SPUR_RIGHT") {
-          // NEW: Spur branching to the right/down
-          endPt = {
-            x: startPt.x + GRID_SIZE * 0.8,
-            y: startPt.y + GRID_SIZE * 0.8,
-          };
-        } else {
-          endPt = nodeMap.get(`${toId}_${toAnchor}`);
-        }
-
-        if (startPt && endPt) {
-          const midX = (startPt.x + endPt.x) / 2;
-          const midY = (startPt.y + endPt.y) / 2;
-
-          segs.push({
-            id: seg1,
-            block: sectionMap.get(seg1) || "UNKNOWN",
-            type: "diag",
-            x1: startPt.x,
-            y1: startPt.y,
-            x2: midX,
-            y2: midY,
-          });
-          segs.push({
-            id: seg2,
-            block: sectionMap.get(seg2) || "UNKNOWN",
-            type: "diag",
-            x1: midX,
-            y1: midY,
-            x2: endPt.x,
-            y2: endPt.y,
-          });
-        }
+      if (toId === "SPUR_LEFT") {
+        endPt = { x: startPt.x - GRID_SIZE * 0.8, y: startPt.y + GRID_SIZE * 0.8 };
+      } else if (toId === "SPUR_RIGHT") {
+        endPt = { x: startPt.x + GRID_SIZE * 0.8, y: startPt.y + GRID_SIZE * 0.8 };
+      } else {
+        endPt = nodeMap.get(`${toId}_${toAnchor}`);
       }
-    );
+
+      if (startPt && endPt) {
+        const midX = (startPt.x + endPt.x) / 2;
+        const midY = (startPt.y + endPt.y) / 2;
+        segs.push({
+          id: seg1, block: sectionMap.get(seg1) || "UNKNOWN", type: "diag",
+          x1: startPt.x, y1: startPt.y, x2: midX, y2: midY,
+        });
+        segs.push({
+          id: seg2, block: sectionMap.get(seg2) || "UNKNOWN", type: "diag",
+          x1: midX, y1: midY, x2: endPt.x, y2: endPt.y,
+        });
+      }
+    });
     return segs;
   }, [sectionMap]);
 
-  // 3. SIMULATION LOOP
-  useEffect(() => {
-    if (!isRunning) return;
-    const PATH = [0, 1, 2, 1000, 1001, 105, 106, 2000, 2001, 200, 201, 202];
-    let index = 0;
-    const interval = setInterval(() => {
-      index = (index + 1) % PATH.length;
-      setActiveWagon({ id: "W1", segmentId: PATH[index] });
-    }, 500);
-    return () => clearInterval(interval);
-  }, [isRunning]);
-
-  if (loading) return <div className="p-10">Connecting to Network...</div>;
+  if (loading) return <div className="p-10">Loading Topology...</div>;
 
   return (
     <div className="p-5 bg-slate-50 min-h-screen font-sans">
+      {/* HEADER */}
       <div className="mb-4 p-4 bg-white rounded shadow-sm border flex justify-between items-center">
         <div>
-          <h2 className="text-xl font-bold text-slate-800">Railway Simulator</h2>
-        </div>
-        <div className="flex items-center gap-4">
-          {hoveredBlock && (
-            <div className="px-4 py-2 rounded bg-gray-800 text-white font-mono shadow-md">
-              BLOCK: {hoveredBlock}
+          <h2 className="text-xl font-bold text-slate-800">Live Traffic Control</h2>
+          <div className="flex gap-4 text-sm mt-1 items-center">
+            <span className={`font-bold ${wsStatus === "CONNECTED" ? "text-green-600" : "text-red-500"}`}>
+              ● {wsStatus}
+            </span>
+            <span className="text-slate-500">Active Trains: {activeTrains.length}</span>
+            
+            {/* CONTROLS */}
+            <div className="flex items-center gap-2 ml-4 border-l pl-4">
+              {/* Upload */}
+              <input 
+                type="file" 
+                accept=".csv" 
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                className="hidden" 
+              />
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded font-medium transition-colors"
+              >
+                Load CSV
+              </button>
+
+              {/* Clear */}
+              <button 
+                onClick={handleClearTrains}
+                className="px-3 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded font-medium transition-colors"
+              >
+                Clear Trains
+              </button>
+
+              {/* Status Message */}
+              {uploadStatus && (
+                <span className={`text-sm ${uploadStatus.includes("Error") || uploadStatus.includes("Failed") ? "text-red-600" : "text-green-600"}`}>
+                  {uploadStatus}
+                </span>
+              )}
             </div>
-          )}
-          <button
-            onClick={() => setIsRunning(!isRunning)}
-            className={`px-4 py-2 rounded text-white font-bold ${
-              isRunning ? "bg-red-500" : "bg-green-600"
-            }`}
-          >
-            {isRunning ? "Stop Sim" : "Start Sim"}
-          </button>
+          </div>
         </div>
+        
+        {hoveredBlock && (
+          <div className="px-4 py-2 rounded bg-gray-800 text-white font-mono shadow-md">
+            BLOCK: {hoveredBlock}
+          </div>
+        )}
       </div>
 
-      <div
-        className="overflow-auto border border-slate-300 bg-white shadow-inner relative rounded-lg"
-        style={{ height: "550px" }}
-      >
-        <svg width="2200" height="400" className="mt-10 ml-10">
+      {/* MAP CONTAINER */}
+      <div className="overflow-auto border border-slate-300 bg-white shadow-inner relative rounded-lg" style={{ height: "600px" }}>
+        <svg width="2200" height="500" className="mt-10 ml-10">
           <g>
+            {/* 1. DRAW TRACKS */}
             {segments.map((seg) => {
               const isHovered = hoveredBlock === seg.block;
               const baseColor = stringToColor(seg.block);
-              const displayColor = baseColor;
-              const opacity = isHovered ? 1 : 0.4;
+              const opacity = isHovered ? 1 : 0.3; 
               const strokeWidth = isHovered ? TRACK_WIDTH + 2 : TRACK_WIDTH;
               const cx = (seg.x1 + seg.x2) / 2;
               const cy = (seg.y1 + seg.y2) / 2;
@@ -205,94 +272,74 @@ const TrainMapFastAPI = () => {
                   className="cursor-pointer"
                   style={{ pointerEvents: "all" }}
                 >
-                  {/* Hit Area */}
-                  <line
-                    x1={seg.x1}
-                    y1={seg.y1}
-                    x2={seg.x2}
-                    y2={seg.y2}
-                    stroke="transparent"
-                    strokeWidth={HIT_AREA_WIDTH}
+                  <line x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} stroke="transparent" strokeWidth={HIT_AREA_WIDTH} />
+                  <line 
+                    x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} 
+                    stroke={baseColor} strokeOpacity={opacity} strokeWidth={strokeWidth} strokeLinecap="round" 
+                    className="pointer-events-none" 
                   />
-                  {/* Visual Line */}
-                  <line
-                    x1={seg.x1}
-                    y1={seg.y1}
-                    x2={seg.x2}
-                    y2={seg.y2}
-                    stroke={displayColor}
-                    strokeOpacity={opacity}
-                    strokeWidth={strokeWidth}
-                    strokeLinecap="round"
-                    className="pointer-events-none"
-                  />
-                  {/* Label */}
                   <text
-                    x={cx}
-                    y={cy - 12}
-                    textAnchor="middle"
-                    fill={isHovered ? "#000" : "#cbd5e1"}
-                    fontSize={isHovered ? "12" : "8"}
-                    fontWeight={isHovered ? "bold" : "normal"}
-                    fontFamily="monospace"
-                    className="select-none transition-all duration-200"
+                    x={cx} y={cy - 12} textAnchor="middle" 
+                    fill={isHovered ? "#000" : "#cbd5e1"} fontSize="9" fontFamily="monospace"
+                    className="select-none pointer-events-none"
                   >
                     {seg.id}
                   </text>
-                  {/* Block Label */}
-                  {isHovered && (
-                    <text
-                      x={cx}
-                      y={cy + 15}
-                      textAnchor="middle"
-                      fill={baseColor}
-                      fontSize="10"
-                      fontWeight="bold"
-                      className="pointer-events-none select-none"
-                    >
-                      BLK {seg.block}
-                    </text>
-                  )}
                 </g>
               );
             })}
 
-            {/* Wagon Overlay */}
-            {(() => {
-              const seg = segments.find((s) => s.id === activeWagon.segmentId);
-              if (!seg) return null;
-              const wx = (seg.x1 + seg.x2) / 2;
-              const wy = (seg.y1 + seg.y2) / 2;
-              const angle =
-                Math.atan2(seg.y2 - seg.y1, seg.x2 - seg.x1) * (180 / Math.PI);
-              return (
-                <g
-                  transform={`translate(${wx}, ${wy}) rotate(${angle})`}
-                  className="pointer-events-none transition-all duration-500"
-                >
-                  <rect
-                    x="-14"
-                    y="-7"
-                    width="28"
-                    height="14"
-                    fill="#1e293b"
-                    stroke="orange"
-                    strokeWidth="2"
-                    rx="2"
-                  />
-                  <text
-                    x="0"
-                    y="4"
-                    textAnchor="middle"
-                    fontSize="9"
-                    fontWeight="bold"
-                    fill="orange"
-                  >
-                    W1
-                  </text>
-                </g>
-              );
-            })()}
+            {/* 2. DRAW TRAINS */}
+            {activeTrains.map((train) => (
+              <g key={train.train_id}>
+                {train.wagons.map((wagon) => {
+                  if (wagon.section_id === null) return null;
+
+                  const seg = segments.find((s) => s.id === wagon.section_id);
+                  if (!seg) return null; 
+
+                  const x = seg.x1 + (seg.x2 - seg.x1) * wagon.position_offset;
+                  const y = seg.y1 + (seg.y2 - seg.y1) * wagon.position_offset;
+                  const angle = Math.atan2(seg.y2 - seg.y1, seg.x2 - seg.x1) * (180 / Math.PI);
+                  
+                  const isLoco = wagon.wagon_index === 0;
+                  const color = isLoco ? "#dc2626" : "#f59e0b"; 
+                  const width = isLoco ? 32 : 28;
+                  const height = 14;
+
+                  return (
+                    <g 
+                      key={wagon.wagon_id} 
+                      transform={`translate(${x}, ${y}) rotate(${angle})`}
+                      className="transition-transform duration-100 ease-linear"
+                    >
+                      <rect
+                        x={-width / 2}
+                        y={-height / 2}
+                        width={width}
+                        height={height}
+                        fill={color}
+                        stroke="black"
+                        strokeWidth="1"
+                        rx={isLoco ? 4 : 2}
+                      />
+                      {isLoco && (
+                        <text
+                          x="0" y="4"
+                          textAnchor="middle"
+                          fontSize="9"
+                          fontWeight="bold"
+                          fill="white"
+                          style={{ pointerEvents: 'none' }}
+                        >
+                          {train.train_id}
+                        </text>
+                      )}
+                    </g>
+                  );
+                })}
+              </g>
+            ))}
           </g>
         </svg>
       </div>
@@ -300,4 +347,4 @@ const TrainMapFastAPI = () => {
   );
 };
 
-export default TrainMapFastAPI;
+export default TrainMapLive;
