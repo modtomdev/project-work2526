@@ -32,7 +32,6 @@ const DIAGONAL_CHAINS = [
   [3000, 3001, 200, "end", "SPUR_RIGHT", "none"],
 ];
 
-// [NEW] Arrow Configuration
 const DIRECTION_ARROWS = [
   { sectionId: 0, direction: "right" },
   { sectionId: 41, direction: "right" },
@@ -61,6 +60,16 @@ const TrainMapLive = () => {
   // File Upload State
   const fileInputRef = useRef(null);
   const [uploadStatus, setUploadStatus] = useState("");
+
+  // [NEW] Manual Spawn Form State
+  const [spawnForm, setSpawnForm] = useState({
+    train_id: "101",
+    train_code: "M-101",
+    train_type_id: "1",
+    current_section_id: "0",
+    num_wagons: "5",
+    desired_stop: "1"
+  });
 
   // --- 1. FETCH STATIC TOPOLOGY ---
   useEffect(() => {
@@ -153,6 +162,47 @@ const TrainMapLive = () => {
     setTimeout(() => setUploadStatus(""), 3000);
   };
 
+  // [NEW] Manual Spawn Handler
+  const handleManualSpawn = async (e) => {
+    e.preventDefault();
+    setUploadStatus("Spawning...");
+
+    // 1. Construct a standard CSV string based on form data
+    const header = "train_id,train_code,train_type_id,current_section_id,num_wagons,desired_stop";
+    const row = `${spawnForm.train_id},${spawnForm.train_code},${spawnForm.train_type_id},${spawnForm.current_section_id},${spawnForm.num_wagons},${spawnForm.desired_stop}`;
+    const csvContent = `${header}\n${row}`;
+
+    // 2. Convert to Blob to mimic a file upload
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const formData = new FormData();
+    formData.append("file", blob, "manual_spawn.csv");
+
+    // 3. Send to existing API
+    try {
+      const response = await fetch(UPLOAD_URL, { method: "POST", body: formData });
+      if (response.ok) {
+        setUploadStatus(`Spawned Train ${spawnForm.train_id}`);
+        // Auto-increment ID for convenience
+        setSpawnForm(prev => ({
+          ...prev,
+          train_id: (parseInt(prev.train_id) + 1).toString(),
+          train_code: `M-${parseInt(prev.train_id) + 1}`
+        }));
+      } else {
+        setUploadStatus("Spawn Failed");
+      }
+    } catch (error) {
+      console.error("Spawn Error:", error);
+      setUploadStatus("Error spawning train");
+    }
+    setTimeout(() => setUploadStatus(""), 3000);
+  };
+
+  const handleFormChange = (e) => {
+    const { name, value } = e.target;
+    setSpawnForm(prev => ({ ...prev, [name]: value }));
+  };
+
   // --- 4. BUILD VISUAL SEGMENTS ---
   const segments = useMemo(() => {
     const segs = [];
@@ -214,7 +264,7 @@ const TrainMapLive = () => {
         <div>
           <h2 className="text-xl font-bold text-slate-800">Live Traffic Control</h2>
           <div className="flex gap-4 text-sm mt-1 items-center">
-            <span className={`font-bold ${wsStatus === "CONNECTED " ? "text-green-600" : "text-red-500"}`}>
+            <span className={`font-bold ${wsStatus === "CONNECTED" ? "text-green-600" : "text-red-500"}`}>
               ● {wsStatus}
             </span>
             <span className="text-slate-500">Active Trains: {activeTrains.length}</span>
@@ -256,7 +306,7 @@ const TrainMapLive = () => {
       </div>
 
       {/* MAP CONTAINER */}
-      <div className="overflow-auto border border-slate-300 bg-white shadow-inner relative rounded-lg" style={{ height: "600px" }}>
+      <div className="overflow-auto border border-slate-300 bg-white shadow-inner relative rounded-lg mb-6" style={{ height: "600px" }}>
         <svg width="2200" height="500" className="mt-10 ml-10">
           <g>
             {/* 1. DRAW TRACKS */}
@@ -293,7 +343,7 @@ const TrainMapLive = () => {
               );
             })}
 
-             {/* 2. DRAW DIRECTION ARROWS [NEW] */}
+             {/* 2. DRAW DIRECTION ARROWS */}
             {DIRECTION_ARROWS.map((arrow, idx) => {
               const seg = segments.find((s) => s.id === arrow.sectionId);
               if (!seg) return null;
@@ -403,6 +453,69 @@ const TrainMapLive = () => {
           </g>
         </svg>
       </div>
+
+      {/* [NEW] MANUAL TRAIN SPAWN FORM */}
+      <div className="bg-white p-6 rounded shadow border border-slate-200">
+        <h3 className="text-lg font-bold text-slate-800 mb-4">Manual Train Spawner</h3>
+        <form onSubmit={handleManualSpawn} className="flex gap-4 items-end flex-wrap">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase">Train ID</label>
+            <input 
+              name="train_id" type="number" required
+              value={spawnForm.train_id} onChange={handleFormChange}
+              className="border p-2 rounded w-24 text-sm bg-slate-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase">Train Code</label>
+            <input 
+              name="train_code" type="text" 
+              value={spawnForm.train_code} onChange={handleFormChange}
+              className="border p-2 rounded w-32 text-sm bg-slate-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase">Type ID</label>
+            <input 
+              name="train_type_id" type="number" 
+              value={spawnForm.train_type_id} onChange={handleFormChange}
+              className="border p-2 rounded w-20 text-sm bg-slate-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase">Start Section</label>
+            <input 
+              name="current_section_id" type="number" required
+              value={spawnForm.current_section_id} onChange={handleFormChange}
+              className="border p-2 rounded w-24 text-sm bg-slate-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase">Wagons</label>
+            <input 
+              name="num_wagons" type="number" min="1" max="10"
+              value={spawnForm.num_wagons} onChange={handleFormChange}
+              className="border p-2 rounded w-20 text-sm bg-slate-50"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase">Dest. Stop ID</label>
+            <input 
+              name="desired_stop" type="number" 
+              value={spawnForm.desired_stop} onChange={handleFormChange}
+              placeholder="(opt)"
+              className="border p-2 rounded w-24 text-sm bg-slate-50"
+            />
+          </div>
+          <button 
+            type="submit"
+            className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded shadow-sm transition-colors"
+          >
+            Spawn Train
+          </button>
+        </form>
+      </div>
+
     </div>
   );
 };
