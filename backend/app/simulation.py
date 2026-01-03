@@ -121,6 +121,13 @@ class SimulationEngine:
 
         for neighbor in neighbors:
             if neighbor == avoid_node: continue
+            
+            # [NEW CHECK] Constraint: Check if neighbor allows entry from start_sec
+            neighbor_obj = self.sections.get(neighbor)
+            if neighbor_obj and neighbor_obj.legal_entry_from is not None:
+                if start_sec not in neighbor_obj.legal_entry_from:
+                    continue
+
             if neighbor == target_sec: return neighbor
             visited.add(neighbor)
             queue.append((neighbor, neighbor)) 
@@ -135,6 +142,12 @@ class SimulationEngine:
 
             for neighbor in curr_neighbors:
                 if neighbor not in visited:
+                    # [NEW CHECK] Constraint: Check if neighbor allows entry from current
+                    neighbor_obj = self.sections.get(neighbor)
+                    if neighbor_obj and neighbor_obj.legal_entry_from is not None:
+                        if current not in neighbor_obj.legal_entry_from:
+                            continue
+
                     visited.add(neighbor)
                     queue.append((neighbor, first_step))
         return None
@@ -158,7 +171,6 @@ class SimulationEngine:
                 train_type = self.train_types.get(train.train_type_id)
                 if not train_type: continue
 
-                # [FIX] Apply Directional Scalar (1 or -1)
                 speed_sps = train_type.cruising_speed / 60.0
                 move_dist = speed_sps * dt * train.direction
                 
@@ -215,27 +227,31 @@ class SimulationEngine:
                         history.appendleft(head_wagon.section_id) 
                         
                         # 2. Determine New Direction (Lookahead to S3)
-                        # We peek where we would go *after* next_section to determine if we enter at 0 or 1
-                        new_dir = 1 # Default Forward
+                        new_dir = 1 
                         
-                        # Use BFS for 1 step to see preference
                         s3_id = None
                         if target_section_id:
                             s3_id = self._bfs_next_step(next_section.section_id, target_section_id, avoid_node=head_wagon.section_id)
                         
                         if s3_id is None:
-                            # Fallback: Pick any valid neighbor (not current)
                             conns = self.network.get(next_section.section_id, [])
-                            valid = [c.to_section_id for c in conns if c.to_section_id != head_wagon.section_id]
+                            # [FIX] Ensure fallback respects constraints too
+                            valid = []
+                            for c in conns:
+                                if c.to_section_id == head_wagon.section_id: continue
+                                # Check switch constraint
+                                nxt_obj = self.sections.get(c.to_section_id)
+                                if nxt_obj and nxt_obj.legal_entry_from is not None:
+                                    if next_section.section_id not in nxt_obj.legal_entry_from:
+                                        continue
+                                valid.append(c.to_section_id)
+                            
                             if valid: s3_id = valid[0]
 
-                        # Heuristic: If we are going to a higher ID, we are likely moving Forward
                         if s3_id is not None:
                             if s3_id < next_section.section_id: new_dir = -1
                             else: new_dir = 1
                         else:
-                            # Dead end at next_section? Infer from entry
-                            # If we entered from a lower ID, we are at Start (Dir 1)
                             if head_wagon.section_id < next_section.section_id: new_dir = 1
                             else: new_dir = -1
 
@@ -244,10 +260,8 @@ class SimulationEngine:
                         train.direction = new_dir
                         head_wagon.position_offset = 0.0 if new_dir == 1 else 1.0
                     else:
-                        # End of Track Clamp
                         head_wagon.position_offset = 0.99 if train.direction == 1 else 0.01
 
-                # Sync Wagons
                 for i in range(1, len(wagon_ids)):
                     w_id = wagon_ids[i]
                     w = self.wagons[w_id]
@@ -276,7 +290,20 @@ class SimulationEngine:
         conns = self.network.get(from_sec, [])
         if not conns: return None
         
-        valid_conns = [c for c in conns if c.to_section_id != prev_sec]
+        # [NEW CHECK] Filter out invalid switch entries in the "valid_conns" list
+        valid_conns = []
+        for c in conns:
+            if c.to_section_id == prev_sec: continue
+            
+            # Check if Target Section has entry restrictions
+            target_obj = self.sections.get(c.to_section_id)
+            if target_obj and target_obj.legal_entry_from is not None:
+                if from_sec not in target_obj.legal_entry_from:
+                    # Switch restriction met: Cannot enter Target from Current
+                    continue
+            
+            valid_conns.append(c)
+
         if not valid_conns: return None 
 
         chosen_conn = None

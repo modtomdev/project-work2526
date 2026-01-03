@@ -5,6 +5,10 @@ import datetime
 class Section(BaseModel):
     section_id: int
     is_occupied: bool = False
+    # [NEW] Whitelist of section IDs allowed to enter this section.
+    # If None or Empty, all incoming connections are valid.
+    # Example: For Switch 33, set this to [34] to ban entry from 32.
+    legal_entry_from: Optional[List[int]] = None
 
 class Connection(BaseModel):
     from_section_id: int
@@ -40,7 +44,7 @@ class Train(BaseModel):
     status: str = 'Moving' 
     num_wagons: int = 1
     
-    # [NEW] Direction state: 1 (Forward 0->1), -1 (Reverse 1->0)
+    # Direction state: 1 (Forward 0->1), -1 (Reverse 1->0)
     direction: int = 1 
     
     desired_stop_id: Optional[int] = None 
@@ -61,7 +65,6 @@ class NetworkConnection(BaseModel):
     from_id: int
     to_id: int
 
-# [NEW] Stop Model
 class NetworkStop(BaseModel):
     stop_id: int
     stop_name: str
@@ -70,4 +73,4 @@ class NetworkStop(BaseModel):
 class NetworkResponse(BaseModel):
     sections: List[NetworkSection]
     connections: List[NetworkConnection]
-    stops: List[NetworkStop] # [NEW] Added stops list
+    stops: List[NetworkStop]
