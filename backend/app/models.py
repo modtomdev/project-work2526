@@ -37,14 +37,16 @@ class Train(BaseModel):
     train_type_id: int
     current_section_id: int
     position_offset: float = 0.0
-    status: str = 'Moving' # Moving, Stopping, Stopped
+    status: str = 'Moving' 
     num_wagons: int = 1
     
-    # New Feature: Routing & Stops
+    # [NEW] Direction state: 1 (Forward 0->1), -1 (Reverse 1->0)
+    direction: int = 1 
+    
     desired_stop_id: Optional[int] = None 
     wait_elapsed: float = 0.0 
 
-    wagons: List[Wagon] = [] 
+    wagons: List[Wagon] = []
 
 class ScheduleEntry(BaseModel):
     stop_id: int

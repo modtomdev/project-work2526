@@ -20,11 +20,9 @@ class SimulationEngine:
         self.train_types: Dict[int, TrainType] = {tt.train_type_id: tt for tt in train_types}
         self.trains: Dict[int, Train] = {t.train_id: t for t in trains}
         
-        # Maps
         self.section_to_block: Dict[int, int] = {b.section_id: b.block_id for b in blocks}
         self.stop_to_section: Dict[int, int] = {s['stop_id']: s['section_id'] for s in stops}
         
-        # Network Graphs
         self.network: Dict[int, List[Connection]] = {} 
         self.reverse_network: Dict[int, List[int]] = {} 
         
@@ -39,7 +37,7 @@ class SimulationEngine:
 
         self.wagons: Dict[int, Wagon] = {}
         self.train_wagons: Dict[int, List[int]] = {}
-        self.train_history: Dict[int, deque] = {} # { train_id: deque([sec_id, ...]) }
+        self.train_history: Dict[int, deque] = {} 
 
         self._initialize_wagons()
         self._update_section_occupancy()
@@ -85,7 +83,6 @@ class SimulationEngine:
         for _ in range(count):
             incoming = self.reverse_network.get(curr, [])
             candidates = [x for x in incoming if x != forbidden_node]
-            
             if candidates:
                 prev = candidates[0]
                 history.append(prev)
@@ -113,29 +110,20 @@ class SimulationEngine:
             self.train_wagons[train.train_id].append(wid)
 
     def _bfs_next_step(self, start_sec: int, target_sec: int, avoid_node: Optional[int] = None) -> Optional[int]:
-        """
-        Finds the next step towards target_sec. 
-        explicitly ignores 'avoid_node' to prevent pathing through the train's tail.
-        """
         if start_sec == target_sec: return None
         queue = deque()
-        
-        # Mark start and avoid_node as visited immediately
         visited = {start_sec}
-        if avoid_node is not None:
-            visited.add(avoid_node)
+        if avoid_node is not None: visited.add(avoid_node)
         
-        # Get neighbors of start node
         neighbors = []
         if start_sec in self.network:
             neighbors = [c.to_section_id for c in self.network[start_sec] if c.is_active]
 
         for neighbor in neighbors:
-            if neighbor == avoid_node: continue # Double check
+            if neighbor == avoid_node: continue
             if neighbor == target_sec: return neighbor
-            
             visited.add(neighbor)
-            queue.append((neighbor, neighbor)) # (CurrentNode, FirstStepTaken)
+            queue.append((neighbor, neighbor)) 
 
         while queue:
             current, first_step = queue.popleft()
@@ -170,12 +158,12 @@ class SimulationEngine:
                 train_type = self.train_types.get(train.train_type_id)
                 if not train_type: continue
 
+                # [FIX] Apply Directional Scalar (1 or -1)
                 speed_sps = train_type.cruising_speed / 60.0
-                move_dist = speed_sps * dt
+                move_dist = speed_sps * dt * train.direction
                 
                 wagon_ids = self.train_wagons.get(train.train_id, [])
                 if not wagon_ids: continue
-                
                 head_wagon = self.wagons[wagon_ids[0]]
                 history = self.train_history[train.train_id]
 
@@ -183,13 +171,18 @@ class SimulationEngine:
                 if train.desired_stop_id:
                     target_section_id = self.stop_to_section.get(train.desired_stop_id)
 
-                # --- LOOKAHEAD & PREV SECTION ---
+                # --- LOOKAHEAD ---
                 next_section = None
                 
-                if head_wagon.position_offset + move_dist >= 1.0:
+                # Check bounds based on direction
+                will_exit = False
+                if train.direction == 1 and head_wagon.position_offset + move_dist >= 1.0:
+                    will_exit = True
+                elif train.direction == -1 and head_wagon.position_offset + move_dist <= 0.0:
+                    will_exit = True
+
+                if will_exit:
                     curr_sec = self.sections.get(head_wagon.section_id)
-                    
-                    # Identify the section immediately behind the train
                     prev_section_id = history[0] if history and history[0] is not None else None
 
                     if curr_sec:
@@ -199,22 +192,62 @@ class SimulationEngine:
                             target_section_id,
                             prev_section_id 
                         )
+                        # If blocked, stop movement
                         if not next_section or next_section.is_occupied:
                              move_dist = 0.0 
 
-                if move_dist <= 0: continue 
+                # Ensure we don't move if speed is 0
+                if move_dist == 0: continue
 
-                # --- PHYSICS ---
+                # --- PHYSICS UPDATE ---
                 head_wagon.position_offset += move_dist
                 
-                if head_wagon.position_offset >= 1.0:
-                    head_wagon.position_offset -= 1.0
-                    if next_section:
-                        history.appendleft(head_wagon.section_id) # Update History
-                        head_wagon.section_id = next_section.section_id
-                    else:
-                        head_wagon.position_offset = 0.99
+                # Boundary Crossing
+                crossed = False
+                if train.direction == 1 and head_wagon.position_offset >= 1.0:
+                    crossed = True
+                elif train.direction == -1 and head_wagon.position_offset <= 0.0:
+                    crossed = True
 
+                if crossed:
+                    if next_section:
+                        # 1. Update History
+                        history.appendleft(head_wagon.section_id) 
+                        
+                        # 2. Determine New Direction (Lookahead to S3)
+                        # We peek where we would go *after* next_section to determine if we enter at 0 or 1
+                        new_dir = 1 # Default Forward
+                        
+                        # Use BFS for 1 step to see preference
+                        s3_id = None
+                        if target_section_id:
+                            s3_id = self._bfs_next_step(next_section.section_id, target_section_id, avoid_node=head_wagon.section_id)
+                        
+                        if s3_id is None:
+                            # Fallback: Pick any valid neighbor (not current)
+                            conns = self.network.get(next_section.section_id, [])
+                            valid = [c.to_section_id for c in conns if c.to_section_id != head_wagon.section_id]
+                            if valid: s3_id = valid[0]
+
+                        # Heuristic: If we are going to a higher ID, we are likely moving Forward
+                        if s3_id is not None:
+                            if s3_id < next_section.section_id: new_dir = -1
+                            else: new_dir = 1
+                        else:
+                            # Dead end at next_section? Infer from entry
+                            # If we entered from a lower ID, we are at Start (Dir 1)
+                            if head_wagon.section_id < next_section.section_id: new_dir = 1
+                            else: new_dir = -1
+
+                        # 3. Apply State
+                        head_wagon.section_id = next_section.section_id
+                        train.direction = new_dir
+                        head_wagon.position_offset = 0.0 if new_dir == 1 else 1.0
+                    else:
+                        # End of Track Clamp
+                        head_wagon.position_offset = 0.99 if train.direction == 1 else 0.01
+
+                # Sync Wagons
                 for i in range(1, len(wagon_ids)):
                     w_id = wagon_ids[i]
                     w = self.wagons[w_id]
@@ -243,26 +276,18 @@ class SimulationEngine:
         conns = self.network.get(from_sec, [])
         if not conns: return None
         
-        # 1. Strict Filtering: Remove U-turn option entirely
         valid_conns = [c for c in conns if c.to_section_id != prev_sec]
-        
-        if not valid_conns: 
-            return None # Dead End (physically blocked from going forward)
+        if not valid_conns: return None 
 
         chosen_conn = None
-        
-        # 2. Priority: Route to Target (avoiding prev_sec in pathfinding)
         if target_sec:
-            # Pass prev_sec as 'avoid_node' to BFS
             next_hop_id = self._bfs_next_step(from_sec, target_sec, avoid_node=prev_sec)
-            
             if next_hop_id:
                 for c in valid_conns:
                     if c.to_section_id == next_hop_id and c.is_active:
                         chosen_conn = c
                         break
         
-        # 3. Default: Wander Forward (Pick first valid non-occupied)
         if not chosen_conn:
              for c in valid_conns:
                  if not c.is_active: continue
@@ -271,7 +296,6 @@ class SimulationEngine:
                  return self.sections.get(c.to_section_id)
              return None 
 
-        # Validate Chosen Route
         nxt = self.sections.get(chosen_conn.to_section_id)
         if nxt:
             blk = self.section_to_block.get(nxt.section_id)

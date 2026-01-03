@@ -214,7 +214,7 @@ const TrainMapLive = () => {
         <div>
           <h2 className="text-xl font-bold text-slate-800">Live Traffic Control</h2>
           <div className="flex gap-4 text-sm mt-1 items-center">
-            <span className={`font-bold ${wsStatus === "CONNECTED" ? "text-green-600" : "text-red-500"}`}>
+            <span className={`font-bold ${wsStatus === "CONNECTED " ? "text-green-600" : "text-red-500"}`}>
               ● {wsStatus}
             </span>
             <span className="text-slate-500">Active Trains: {activeTrains.length}</span>
