@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS train_types (
     train_type_id SERIAL PRIMARY KEY,
     type_name VARCHAR(50) UNIQUE NOT NULL,
     priority_index INTEGER UNIQUE NOT NULL,
-    cruising_speed FLOAT NOT NULL DEFAULT 0.5,
+    cruising_speed FLOAT NOT NULL DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -226,8 +226,8 @@ VALUES
 
 INSERT INTO train_types (type_name, priority_index, cruising_speed)
 VALUES
-('Regionale', 2, 15.0),
-('Alta velocità', 1, 25.0);
+('Regionale', 2, 70.0),
+('Alta velocità', 1, 100.0);
 
 INSERT INTO stops (stop_name, section_id)
 VALUES

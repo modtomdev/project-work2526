@@ -51,7 +51,6 @@ class ScheduleEntry(BaseModel):
     scheduled_arrival_time: Optional[datetime.datetime] = None
     scheduled_departure_time: Optional[datetime.datetime] = None
 
-# --- NEW MODELS FOR FRONTEND NETWORK MAPPING ---
 class NetworkSection(BaseModel):
     section_id: int
     block_name: str = "UNKNOWN"
@@ -60,6 +59,13 @@ class NetworkConnection(BaseModel):
     from_id: int
     to_id: int
 
+# [NEW] Stop Model
+class NetworkStop(BaseModel):
+    stop_id: int
+    stop_name: str
+    section_id: int
+
 class NetworkResponse(BaseModel):
     sections: List[NetworkSection]
     connections: List[NetworkConnection]
+    stops: List[NetworkStop] # [NEW] Added stops list

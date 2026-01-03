@@ -10,7 +10,7 @@ from typing import List, Optional
 
 from models import (
     Train, Section, Connection, TrainType, RailBlock, 
-    NetworkResponse, NetworkSection, NetworkConnection
+    NetworkResponse, NetworkSection, NetworkConnection, NetworkStop # [NEW] Import NetworkStop
 )
 from simulation import SimulationEngine
 
@@ -93,18 +93,16 @@ async def shutdown():
     if db_pool:
         await db_pool.close()
 
-# --- NEW ENDPOINT FOR FRONTEND MAPPING ---
 @app.get("/api/network", response_model=NetworkResponse)
 async def get_network_topology():
     """
-    Returns the static network map: sections combined with their block names,
-    and all connections. Used by the Frontend to build the SVG map.
+    Returns the static network map: sections, connections, and now stops.
     """
     if not db_pool:
         raise HTTPException(status_code=503, detail="Database not initialized")
 
     async with db_pool.acquire() as conn:
-        # 1. Fetch Sections Joined with Blocks (Left Join to include sections without blocks)
+        # 1. Fetch Sections
         rows_sections = await conn.fetch("""
             SELECT s.section_id, COALESCE(b.block_name, 'UNKNOWN') as block_name
             FROM sections s
@@ -118,6 +116,12 @@ async def get_network_topology():
             FROM section_connections
         """)
 
+        # 3. [NEW] Fetch Stops
+        rows_stops = await conn.fetch("""
+            SELECT stop_id, stop_name, section_id
+            FROM stops
+        """)
+
         return {
             "sections": [
                 NetworkSection(section_id=r["section_id"], block_name=r["block_name"]) 
@@ -126,6 +130,9 @@ async def get_network_topology():
             "connections": [
                 NetworkConnection(from_id=r["from_section_id"], to_id=r["to_section_id"]) 
                 for r in rows_conns
+            ],
+            "stops": [
+                NetworkStop(**dict(r)) for r in rows_stops
             ]
         }
 

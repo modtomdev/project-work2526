@@ -3,7 +3,7 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 // --- CONFIGURATION ---
 const API_URL = "http://localhost:8000/api/network";
 const UPLOAD_URL = "http://localhost:8000/api/v1/load_trains";
-const CLEAR_URL = "http://localhost:8000/api/v1/trains"; // New Endpoint
+const CLEAR_URL = "http://localhost:8000/api/v1/trains";
 const WS_URL = "ws://localhost:8000/ws/traffic"; 
 const GRID_SIZE = 40;
 const TRACK_WIDTH = 6;
@@ -32,6 +32,14 @@ const DIAGONAL_CHAINS = [
   [3000, 3001, 200, "end", "SPUR_RIGHT", "none"],
 ];
 
+// [NEW] Arrow Configuration
+const DIRECTION_ARROWS = [
+  { sectionId: 0, direction: "right" },
+  { sectionId: 41, direction: "right" },
+  { sectionId: 100, direction: "left" },
+  { sectionId: 141, direction: "left" },
+];
+
 const stringToColor = (str) => {
   if (!str) return "#ddd";
   let hash = 0;
@@ -44,6 +52,7 @@ const stringToColor = (str) => {
 const TrainMapLive = () => {
   // --- STATE ---
   const [sectionMap, setSectionMap] = useState(new Map());
+  const [stopList, setStopList] = useState([]); 
   const [loading, setLoading] = useState(true);
   const [hoveredBlock, setHoveredBlock] = useState(null);
   const [activeTrains, setActiveTrains] = useState([]); 
@@ -61,6 +70,7 @@ const TrainMapLive = () => {
         const map = new Map();
         data.sections.forEach((sec) => map.set(sec.section_id, sec.block_name));
         setSectionMap(map);
+        setStopList(data.stops || []);
         setLoading(false);
       })
       .catch((err) => console.error("API Error:", err));
@@ -132,7 +142,7 @@ const TrainMapLive = () => {
       const response = await fetch(CLEAR_URL, { method: "DELETE" });
       if (response.ok) {
         setUploadStatus("All trains cleared");
-        setActiveTrains([]); // Immediate UI update (optional, WS will also sync)
+        setActiveTrains([]); 
       } else {
         setUploadStatus("Failed to clear trains");
       }
@@ -209,9 +219,7 @@ const TrainMapLive = () => {
             </span>
             <span className="text-slate-500">Active Trains: {activeTrains.length}</span>
             
-            {/* CONTROLS */}
             <div className="flex items-center gap-2 ml-4 border-l pl-4">
-              {/* Upload */}
               <input 
                 type="file" 
                 accept=".csv" 
@@ -225,16 +233,12 @@ const TrainMapLive = () => {
               >
                 Load CSV
               </button>
-
-              {/* Clear */}
               <button 
                 onClick={handleClearTrains}
                 className="px-3 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded font-medium transition-colors"
               >
                 Clear Trains
               </button>
-
-              {/* Status Message */}
               {uploadStatus && (
                 <span className={`text-sm ${uploadStatus.includes("Error") || uploadStatus.includes("Failed") ? "text-red-600" : "text-green-600"}`}>
                   {uploadStatus}
@@ -289,7 +293,63 @@ const TrainMapLive = () => {
               );
             })}
 
-            {/* 2. DRAW TRAINS */}
+             {/* 2. DRAW DIRECTION ARROWS [NEW] */}
+            {DIRECTION_ARROWS.map((arrow, idx) => {
+              const seg = segments.find((s) => s.id === arrow.sectionId);
+              if (!seg) return null;
+
+              const cx = (seg.x1 + seg.x2) / 2;
+              const cy = (seg.y1 + seg.y2) / 2;
+              const yOffset = -25; // How high above the track
+
+              return (
+                <g key={`arrow-${idx}`} transform={`translate(${cx}, ${cy + yOffset})`}>
+                  {arrow.direction === "right" ? (
+                    <path
+                      d="M -10 0 L 10 0 M 5 -5 L 10 0 L 5 5"
+                      stroke="#64748b"
+                      strokeWidth="2"
+                      fill="none"
+                    />
+                  ) : (
+                    <path
+                      d="M 10 0 L -10 0 M -5 -5 L -10 0 L -5 5"
+                      stroke="#64748b"
+                      strokeWidth="2"
+                      fill="none"
+                    />
+                  )}
+                </g>
+              );
+            })}
+
+            {/* 3. DRAW STOPS */}
+            {stopList.map((stop) => {
+              const seg = segments.find(s => s.id === stop.section_id);
+              if (!seg) return null;
+              
+              const cx = (seg.x1 + seg.x2) / 2;
+              const cy = (seg.y1 + seg.y2) / 2;
+
+              return (
+                <g key={stop.stop_id} transform={`translate(${cx}, ${cy})`}>
+                  {/* Flag Pole */}
+                  <line x1="0" y1="0" x2="0" y2="-15" stroke="#333" strokeWidth="2" />
+                  {/* Flag Banner */}
+                  <path d="M0,-15 L12,-10 L0,-5 Z" fill="#ef4444" stroke="#7f1d1d" strokeWidth="1" />
+                  {/* Stop Label */}
+                  <text x="0" y="-18" textAnchor="middle" fontSize="8" fill="#555" fontWeight="bold">
+                    {stop.stop_name || stop.stop_id}
+                  </text>
+                  <circle r="5" fill="transparent"
+                     onMouseEnter={() => setHoveredBlock(`STOP: ${stop.stop_name}`)}
+                     onMouseLeave={() => setHoveredBlock(null)}
+                  />
+                </g>
+              );
+            })}
+
+            {/* 4. DRAW TRAINS */}
             {activeTrains.map((train) => (
               <g key={train.train_id}>
                 {train.wagons.map((wagon) => {

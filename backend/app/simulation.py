@@ -25,26 +25,21 @@ class SimulationEngine:
         self.stop_to_section: Dict[int, int] = {s['stop_id']: s['section_id'] for s in stops}
         
         # Network Graphs
-        self.network: Dict[int, List[Connection]] = {} # Forward: From -> To
-        self.reverse_network: Dict[int, List[int]] = {} # Reverse: To -> [From, From]
+        self.network: Dict[int, List[Connection]] = {} 
+        self.reverse_network: Dict[int, List[int]] = {} 
         
         for conn in connections:
-            # Build Forward Graph
             if conn.from_section_id not in self.network:
                 self.network[conn.from_section_id] = []
             self.network[conn.from_section_id].append(conn)
 
-            # Build Reverse Graph (For finding tails on spawn)
             if conn.to_section_id not in self.reverse_network:
                 self.reverse_network[conn.to_section_id] = []
             self.reverse_network[conn.to_section_id].append(conn.from_section_id)
 
         self.wagons: Dict[int, Wagon] = {}
         self.train_wagons: Dict[int, List[int]] = {}
-        
-        # Stores the list of previous sections for every train (The Snake Body)
-        # Format: { train_id: deque([sec_minus_1, sec_minus_2, ...]) }
-        self.train_history: Dict[int, deque] = {}
+        self.train_history: Dict[int, deque] = {} # { train_id: deque([sec_id, ...]) }
 
         self._initialize_wagons()
         self._update_section_occupancy()
@@ -72,11 +67,10 @@ class SimulationEngine:
             self._update_section_occupancy()
 
     def _setup_single_train(self, train: Train, start_wagon_id: int):
-        """Helper to init wagons and backfill history for the snake tail."""
         self.train_wagons[train.train_id] = []
         count = max(1, getattr(train, 'num_wagons', 1))
         
-        # 1. Determine Forward direction (Best Guess)
+        # 1. Determine Forward direction
         next_sec_id = None
         if train.desired_stop_id:
              target_sec = self.stop_to_section.get(train.desired_stop_id)
@@ -86,61 +80,62 @@ class SimulationEngine:
         # 2. Backfill History
         history = deque(maxlen=count)
         curr = train.current_section_id
-        
-        # 'forbidden_node' tracks the node we just visited to avoid U-turns
         forbidden_node = next_sec_id 
         
         for _ in range(count):
             incoming = self.reverse_network.get(curr, [])
-            
-            # Filter: Pick a neighbor that is NOT the one we just came from/are going to
             candidates = [x for x in incoming if x != forbidden_node]
             
             if candidates:
-                prev = candidates[0] # Pick first valid backward path
+                prev = candidates[0]
                 history.append(prev)
                 forbidden_node = curr
                 curr = prev
             else:
-                # Dead end: The rest of the train is "Off Map"
                 history.append(None)
-                # forbidden_node stays same, curr stays same (doesn't matter)
         
         self.train_history[train.train_id] = history
         
         # 3. Create Wagons
-        # Head (Index 0)
         self.wagons[start_wagon_id] = Wagon(
             wagon_id=start_wagon_id, train_id=train.train_id, wagon_index=0,
             section_id=train.current_section_id, position_offset=train.position_offset
         )
         self.train_wagons[train.train_id].append(start_wagon_id)
         
-        # Tail (Indices 1..N)
         for i in range(1, count):
             wid = start_wagon_id + i
-            # Look up section in history
             hist_sec = history[i-1] if (i-1) < len(history) else None
-            
             self.wagons[wid] = Wagon(
                 wagon_id=wid, train_id=train.train_id, wagon_index=i,
                 section_id=hist_sec, position_offset=train.position_offset
             )
             self.train_wagons[train.train_id].append(wid)
 
-    def _bfs_next_step(self, start_sec: int, target_sec: int) -> Optional[int]:
+    def _bfs_next_step(self, start_sec: int, target_sec: int, avoid_node: Optional[int] = None) -> Optional[int]:
+        """
+        Finds the next step towards target_sec. 
+        explicitly ignores 'avoid_node' to prevent pathing through the train's tail.
+        """
         if start_sec == target_sec: return None
         queue = deque()
-        visited = {start_sec}
         
+        # Mark start and avoid_node as visited immediately
+        visited = {start_sec}
+        if avoid_node is not None:
+            visited.add(avoid_node)
+        
+        # Get neighbors of start node
         neighbors = []
         if start_sec in self.network:
             neighbors = [c.to_section_id for c in self.network[start_sec] if c.is_active]
 
         for neighbor in neighbors:
+            if neighbor == avoid_node: continue # Double check
             if neighbor == target_sec: return neighbor
-            queue.append((neighbor, neighbor)) 
+            
             visited.add(neighbor)
+            queue.append((neighbor, neighbor)) # (CurrentNode, FirstStepTaken)
 
         while queue:
             current, first_step = queue.popleft()
@@ -162,7 +157,6 @@ class SimulationEngine:
             STOP_DURATION = 5.0 
 
             for train in self.trains.values():
-                # --- STOPPING LOGIC ---
                 if train.status == 'Stopping':
                     train.wait_elapsed += dt
                     if train.wait_elapsed >= STOP_DURATION:
@@ -185,82 +179,92 @@ class SimulationEngine:
                 head_wagon = self.wagons[wagon_ids[0]]
                 history = self.train_history[train.train_id]
 
-                # Identify Target Section
                 target_section_id = None
                 if train.desired_stop_id:
                     target_section_id = self.stop_to_section.get(train.desired_stop_id)
 
-                # --- HEAD PHYSICS & LOOKAHEAD ---
+                # --- LOOKAHEAD & PREV SECTION ---
                 next_section = None
                 
                 if head_wagon.position_offset + move_dist >= 1.0:
                     curr_sec = self.sections.get(head_wagon.section_id)
+                    
+                    # Identify the section immediately behind the train
+                    prev_section_id = history[0] if history and history[0] is not None else None
+
                     if curr_sec:
                         next_section = self._find_next_active_section(
-                            curr_sec.section_id, occupied_blocks, target_section_id
+                            curr_sec.section_id, 
+                            occupied_blocks, 
+                            target_section_id,
+                            prev_section_id 
                         )
                         if not next_section or next_section.is_occupied:
-                             move_dist = 0.0 # Blocked
+                             move_dist = 0.0 
 
                 if move_dist <= 0: continue 
 
-                # --- APPLY MOVEMENT (SNAKE LOGIC) ---
-                
-                # 1. Move Head
+                # --- PHYSICS ---
                 head_wagon.position_offset += move_dist
                 
-                # 2. Handle Boundary Crossing
                 if head_wagon.position_offset >= 1.0:
                     head_wagon.position_offset -= 1.0
                     if next_section:
-                        # PUSH old section to History
-                        history.appendleft(head_wagon.section_id)
-                        # MOVE Head
+                        history.appendleft(head_wagon.section_id) # Update History
                         head_wagon.section_id = next_section.section_id
                     else:
-                        head_wagon.position_offset = 0.99 # End of line
+                        head_wagon.position_offset = 0.99
 
-                # 3. Snap Tail to History
                 for i in range(1, len(wagon_ids)):
                     w_id = wagon_ids[i]
                     w = self.wagons[w_id]
-                    
                     if (i-1) < len(history):
                         w.section_id = history[i-1]
                     else:
-                        w.section_id = None # Should not happen if history len matches wagons
-                        
+                        w.section_id = None
                     w.position_offset = head_wagon.position_offset
 
-                # Sync Train Object
                 train.current_section_id = head_wagon.section_id
                 train.position_offset = head_wagon.position_offset
 
-                # --- ARRIVAL CHECK ---
                 if target_section_id and train.current_section_id == target_section_id:
                      train.status = 'Stopping'
                      train.wait_elapsed = 0.0
 
             self._update_section_occupancy()
 
-    def _find_next_active_section(self, from_sec: int, occupied_blocks: set, target_sec: Optional[int] = None) -> Optional[Section]:
+    def _find_next_active_section(
+        self, 
+        from_sec: int, 
+        occupied_blocks: set, 
+        target_sec: Optional[int] = None,
+        prev_sec: Optional[int] = None
+    ) -> Optional[Section]:
         conns = self.network.get(from_sec, [])
         if not conns: return None
         
+        # 1. Strict Filtering: Remove U-turn option entirely
+        valid_conns = [c for c in conns if c.to_section_id != prev_sec]
+        
+        if not valid_conns: 
+            return None # Dead End (physically blocked from going forward)
+
         chosen_conn = None
         
-        # Priority 1: Route to Target
+        # 2. Priority: Route to Target (avoiding prev_sec in pathfinding)
         if target_sec:
-            next_hop_id = self._bfs_next_step(from_sec, target_sec)
+            # Pass prev_sec as 'avoid_node' to BFS
+            next_hop_id = self._bfs_next_step(from_sec, target_sec, avoid_node=prev_sec)
+            
             if next_hop_id:
-                for c in conns:
+                for c in valid_conns:
                     if c.to_section_id == next_hop_id and c.is_active:
                         chosen_conn = c
                         break
         
-        # Priority 2: Default
+        # 3. Default: Wander Forward (Pick first valid non-occupied)
         if not chosen_conn:
-             for c in conns:
+             for c in valid_conns:
                  if not c.is_active: continue
                  nxt_block = self.section_to_block.get(c.to_section_id)
                  if nxt_block and nxt_block in occupied_blocks: continue
@@ -278,7 +282,7 @@ class SimulationEngine:
     def _get_occupied_blocks(self) -> Set[int]:
         occ = set()
         for w in self.wagons.values():
-            if w.section_id is not None: # Skip off-map wagons
+            if w.section_id is not None:
                 b = self.section_to_block.get(w.section_id)
                 if b is not None: occ.add(b)
         return occ
