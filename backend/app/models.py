@@ -41,8 +41,8 @@ class Train(BaseModel):
     num_wagons: int = 1
     
     # New Feature: Routing & Stops
-    desired_stop_id: Optional[int] = None # The target stop_id
-    wait_elapsed: float = 0.0 # Timer for how long it has been stopped
+    desired_stop_id: Optional[int] = None 
+    wait_elapsed: float = 0.0 
 
     wagons: List[Wagon] = [] 
 
@@ -50,3 +50,16 @@ class ScheduleEntry(BaseModel):
     stop_id: int
     scheduled_arrival_time: Optional[datetime.datetime] = None
     scheduled_departure_time: Optional[datetime.datetime] = None
+
+# --- NEW MODELS FOR FRONTEND NETWORK MAPPING ---
+class NetworkSection(BaseModel):
+    section_id: int
+    block_name: str = "UNKNOWN"
+
+class NetworkConnection(BaseModel):
+    from_id: int
+    to_id: int
+
+class NetworkResponse(BaseModel):
+    sections: List[NetworkSection]
+    connections: List[NetworkConnection]
