@@ -298,8 +298,3 @@ class SimulationEngine:
                 t_copy.wagons = [self.wagons[wid].model_copy() for wid in w_ids]
                 result.append(t_copy)
             return result
-    
-    async def get_sections_state(self) -> List[Section]:
-        async with self.lock: return [s.model_copy() for s in self.sections.values()]
-    async def get_connections_state(self) -> List[Connection]:
-        async with self.lock: return [c.model_copy() for c_list in self.network.values() for c in c_list]

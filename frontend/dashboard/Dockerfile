@@ -14,6 +14,6 @@ FROM nginx:alpine AS final
 
 COPY frontend/dashboard/nginx.conf /etc/nginx/conf.d/default.conf
 
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /app/build /usr/share/nginx/html
 
 ENTRYPOINT ["nginx", "-g", "daemon off;"]

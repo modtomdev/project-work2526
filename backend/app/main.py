@@ -59,7 +59,7 @@ async def simulation_loop(tick_rate: int = 10):
 async def startup():
     global engine, db_pool
     # Update credentials as needed
-    DB_DSN = "postgres://postgres:password@localhost:5432/train_network"
+    DB_DSN = "postgres://myuser:mypassword@db:5432/mydb"
     
     sections, connections, train_types, rail_blocks, stops = [], [], [], [], []
     
@@ -170,12 +170,6 @@ async def get_debug_ui():
             return text_file.read()
     except FileNotFoundError:
         return "debug html file not found"
-
-@app.get("/api/v1/sections")
-async def get_sections(): return await engine.get_sections_state()
-
-@app.get("/api/v1/connections")
-async def get_connections(): return await engine.get_connections_state()
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
