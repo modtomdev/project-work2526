@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import csv
 from io import StringIO
 
-from models import (Train, Section, Connection, TrainType, RailBlock, NetworkDTO, SectionDTO, ConnectionDTO, StopDTO)
+from models import (Train, Section, Connection, TrainType, Stop, RailBlock, NetworkDTO, SectionDTO, ConnectionDTO, StopDTO)
 from simulation import SimulationEngine
 
 app = FastAPI(title="TrainSim", version="1.0.0")
@@ -184,6 +184,29 @@ async def clear_all_trains():
         engine._update_section_occupancy()
         
     return {"message": "All trains cleared"}
+
+@app.post("/api/v1/simulation/pause")
+async def pause_simulation():
+    if not engine: raise HTTPException(503, "Engine not ready")
+    engine.set_paused(True)
+    return {"status": "paused"}
+
+@app.post("/api/v1/simulation/resume")
+async def resume_simulation():
+    if not engine: raise HTTPException(503, "Engine not ready")
+    engine.set_paused(False)
+    return {"status": "running"}
+
+@app.get("/api/v1/simulation/debug")
+async def get_simulation_debug():
+    """Returns the last N debug logs from the simulation engine."""
+    if not engine: raise HTTPException(503, "Engine not ready")
+    
+    return {
+        "tick": engine.tick_count,
+        "paused": engine.paused,
+        "logs": list(engine.debug_logs)
+    }
 
 @app.websocket("/ws/traffic")
 async def ws_traffic(websocket: WebSocket):

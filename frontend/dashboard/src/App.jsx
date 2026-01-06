@@ -4,7 +4,10 @@ import React, { useMemo, useState, useEffect, useRef } from "react";
 const API_URL = "http://localhost:8000/api/network";
 const UPLOAD_URL = "http://localhost:8000/api/v1/load_trains";
 const CLEAR_URL = "http://localhost:8000/api/v1/trains";
-const WS_URL = "ws://localhost:8000/ws/traffic"; 
+const WS_URL = "ws://localhost:8000/ws/traffic";
+const PAUSE_URL = "http://localhost:8000/api/v1/simulation/pause";
+const RESUME_URL = "http://localhost:8000/api/v1/simulation/resume";
+const DEBUG_URL = "http://localhost:8000/api/v1/simulation/debug";
 const GRID_SIZE = 40;
 const TRACK_WIDTH = 6;
 const HIT_AREA_WIDTH = 40;
@@ -56,6 +59,9 @@ const TrainMapLive = () => {
   const [hoveredBlock, setHoveredBlock] = useState(null);
   const [activeTrains, setActiveTrains] = useState([]); 
   const [wsStatus, setWsStatus] = useState("DISCONNECTED");
+  const [debugLogs, setDebugLogs] = useState([]);
+  const [showDebug, setShowDebug] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   
   // File Upload State
   const fileInputRef = useRef(null);
@@ -70,6 +76,20 @@ const TrainMapLive = () => {
     num_wagons: "5",
     desired_stop: "1"
   });
+
+  useEffect(() => {
+    if (!showDebug) return;
+    const interval = setInterval(() => {
+      fetch(DEBUG_URL)
+        .then(res => res.json())
+        .then(data => {
+            setDebugLogs(data.logs.reverse()); // Show newest first
+            setIsPaused(data.paused);
+        })
+        .catch(err => console.error("Debug poll error", err));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [showDebug]);
 
   // --- 1. FETCH STATIC TOPOLOGY ---
   useEffect(() => {
@@ -115,6 +135,12 @@ const TrainMapLive = () => {
   }, []);
 
   // --- 3. HANDLERS ---
+  const togglePause = async () => {
+    const url = isPaused ? RESUME_URL : PAUSE_URL;
+    await fetch(url, { method: "POST" });
+    setIsPaused(!isPaused);
+  };
+
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
@@ -163,12 +189,13 @@ const TrainMapLive = () => {
   };
 
   // [NEW] Manual Spawn Handler
-  const handleManualSpawn = async (e) => {
+const handleManualSpawn = async (e) => {
     e.preventDefault();
     setUploadStatus("Spawning...");
 
-    // 1. Construct a standard CSV string based on form data
-    const header = "train_id,train_code,train_type_id,current_section_id,num_wagons,desired_stop";
+    // FIX: Changed 'desired_stop' to 'desired_stop_id' in the header string 
+    // to match the key expected by the Python backend DictReader.
+    const header = "train_id,train_code,train_type_id,current_section_id,num_wagons,desired_stop_id";
     const row = `${spawnForm.train_id},${spawnForm.train_code},${spawnForm.train_type_id},${spawnForm.current_section_id},${spawnForm.num_wagons},${spawnForm.desired_stop}`;
     const csvContent = `${header}\n${row}`;
 
@@ -257,19 +284,37 @@ const TrainMapLive = () => {
 
   if (loading) return <div className="p-10">Loading Topology...</div>;
 
-  return (
-    <div className="p-5 bg-slate-50 min-h-screen font-sans">
+return (
+    <div className="p-5 bg-slate-50 min-h-screen font-sans flex flex-col">
       {/* HEADER */}
-      <div className="mb-4 p-4 bg-white rounded shadow-sm border flex justify-between items-center">
+      <div className="mb-4 p-4 bg-white rounded shadow-sm border flex justify-between items-center sticky top-0 z-20">
         <div>
           <h2 className="text-xl font-bold text-slate-800">Live Traffic Control</h2>
-          <div className="flex gap-4 text-sm mt-1 items-center">
-            <span className={`font-bold ${wsStatus === "CONNECTED" ? "text-green-600" : "text-red-500"}`}>
-              ● {wsStatus}
+          <div className="flex gap-4 text-sm mt-2 items-center">
+            {/* Status Indicator */}
+            <span className={`font-bold flex items-center gap-1 ${wsStatus === "CONNECTED" ? "text-green-600" : "text-red-500"}`}>
+              <span className="text-xs">●</span> {wsStatus}
             </span>
             <span className="text-slate-500">Active Trains: {activeTrains.length}</span>
             
-            <div className="flex items-center gap-2 ml-4 border-l pl-4">
+            {/* Simulation Controls */}
+            <div className="flex items-center gap-2 ml-4 border-l pl-4 border-slate-300">
+               <button 
+                onClick={togglePause}
+                className={`px-3 py-1 text-xs font-bold rounded text-white transition-colors shadow-sm ${isPaused ? "bg-green-600 hover:bg-green-700" : "bg-orange-500 hover:bg-orange-600"}`}
+              >
+                {isPaused ? "RESUME SIMULATION" : "PAUSE SIMULATION"}
+              </button>
+              <button 
+                onClick={() => setShowDebug(!showDebug)}
+                className={`px-3 py-1 text-xs font-bold rounded transition-colors shadow-sm ${showDebug ? "bg-slate-800 text-white" : "bg-slate-200 text-slate-700 hover:bg-slate-300"}`}
+              >
+                {showDebug ? "HIDE DEBUG" : "SHOW DEBUG"}
+              </button>
+            </div>
+
+            {/* File Controls */}
+            <div className="flex items-center gap-2 ml-4 border-l pl-4 border-slate-300">
               <input 
                 type="file" 
                 accept=".csv" 
@@ -279,18 +324,18 @@ const TrainMapLive = () => {
               />
               <button 
                 onClick={() => fileInputRef.current?.click()}
-                className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded font-medium transition-colors"
+                className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded font-medium transition-colors"
               >
                 Load CSV
               </button>
               <button 
                 onClick={handleClearTrains}
-                className="px-3 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded font-medium transition-colors"
+                className="px-3 py-1 text-xs bg-red-600 hover:bg-red-700 text-white rounded font-medium transition-colors"
               >
                 Clear Trains
               </button>
               {uploadStatus && (
-                <span className={`text-sm ${uploadStatus.includes("Error") || uploadStatus.includes("Failed") ? "text-red-600" : "text-green-600"}`}>
+                <span className={`text-xs font-medium ${uploadStatus.includes("Error") || uploadStatus.includes("Failed") ? "text-red-600" : "text-green-600"}`}>
                   {uploadStatus}
                 </span>
               )}
@@ -299,223 +344,260 @@ const TrainMapLive = () => {
         </div>
         
         {hoveredBlock && (
-          <div className="px-4 py-2 rounded bg-gray-800 text-white font-mono shadow-md">
-            BLOCK: {hoveredBlock}
+          <div className="px-4 py-2 rounded bg-gray-800 text-white font-mono text-sm shadow-md border border-gray-700">
+            BLOCK: <span className="text-yellow-400 font-bold">{hoveredBlock}</span>
           </div>
         )}
       </div>
 
-      {/* MAP CONTAINER */}
-      <div className="overflow-auto border border-slate-300 bg-white shadow-inner relative rounded-lg mb-6" style={{ height: "600px" }}>
-        <svg width="2200" height="500" className="mt-10 ml-10">
-          <g>
-            {/* 1. DRAW TRACKS */}
-            {segments.map((seg) => {
-              const isHovered = hoveredBlock === seg.block;
-              const baseColor = stringToColor(seg.block);
-              const opacity = isHovered ? 1 : 0.3; 
-              const strokeWidth = isHovered ? TRACK_WIDTH + 2 : TRACK_WIDTH;
-              const cx = (seg.x1 + seg.x2) / 2;
-              const cy = (seg.y1 + seg.y2) / 2;
-
-              return (
-                <g
-                  key={seg.id}
-                  onMouseEnter={() => setHoveredBlock(seg.block)}
-                  onMouseLeave={() => setHoveredBlock(null)}
-                  className="cursor-pointer"
-                  style={{ pointerEvents: "all" }}
-                >
-                  <line x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} stroke="transparent" strokeWidth={HIT_AREA_WIDTH} />
-                  <line 
-                    x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} 
-                    stroke={baseColor} strokeOpacity={opacity} strokeWidth={strokeWidth} strokeLinecap="round" 
-                    className="pointer-events-none" 
-                  />
-                  <text
-                    x={cx} y={cy - 12} textAnchor="middle" 
-                    fill={isHovered ? "#000" : "#cbd5e1"} fontSize="9" fontFamily="monospace"
-                    className="select-none pointer-events-none"
-                  >
-                    {seg.id}
-                  </text>
-                </g>
-              );
-            })}
-
-             {/* 2. DRAW DIRECTION ARROWS */}
-            {DIRECTION_ARROWS.map((arrow, idx) => {
-              const seg = segments.find((s) => s.id === arrow.sectionId);
-              if (!seg) return null;
-
-              const cx = (seg.x1 + seg.x2) / 2;
-              const cy = (seg.y1 + seg.y2) / 2;
-              const yOffset = -25; // How high above the track
-
-              return (
-                <g key={`arrow-${idx}`} transform={`translate(${cx}, ${cy + yOffset})`}>
-                  {arrow.direction === "right" ? (
-                    <path
-                      d="M -10 0 L 10 0 M 5 -5 L 10 0 L 5 5"
-                      stroke="#64748b"
-                      strokeWidth="2"
-                      fill="none"
-                    />
-                  ) : (
-                    <path
-                      d="M 10 0 L -10 0 M -5 -5 L -10 0 L -5 5"
-                      stroke="#64748b"
-                      strokeWidth="2"
-                      fill="none"
-                    />
-                  )}
-                </g>
-              );
-            })}
-
-            {/* 3. DRAW STOPS */}
-            {stopList.map((stop) => {
-              const seg = segments.find(s => s.id === stop.section_id);
-              if (!seg) return null;
-              
-              const cx = (seg.x1 + seg.x2) / 2;
-              const cy = (seg.y1 + seg.y2) / 2;
-
-              return (
-                <g key={stop.stop_id} transform={`translate(${cx}, ${cy})`}>
-                  {/* Flag Pole */}
-                  <line x1="0" y1="0" x2="0" y2="-15" stroke="#333" strokeWidth="2" />
-                  {/* Flag Banner */}
-                  <path d="M0,-15 L12,-10 L0,-5 Z" fill="#ef4444" stroke="#7f1d1d" strokeWidth="1" />
-                  {/* Stop Label */}
-                  <text x="0" y="-18" textAnchor="middle" fontSize="8" fill="#555" fontWeight="bold">
-                    {stop.stop_name || stop.stop_id}
-                  </text>
-                  <circle r="5" fill="transparent"
-                     onMouseEnter={() => setHoveredBlock(`STOP: ${stop.stop_name}`)}
-                     onMouseLeave={() => setHoveredBlock(null)}
-                  />
-                </g>
-              );
-            })}
-
-            {/* 4. DRAW TRAINS */}
-            {activeTrains.map((train) => (
-              <g key={train.train_id}>
-                {train.wagons.map((wagon) => {
-                  if (wagon.section_id === null) return null;
-
-                  const seg = segments.find((s) => s.id === wagon.section_id);
-                  if (!seg) return null; 
-
-                  const x = seg.x1 + (seg.x2 - seg.x1) * wagon.position_offset;
-                  const y = seg.y1 + (seg.y2 - seg.y1) * wagon.position_offset;
-                  const angle = Math.atan2(seg.y2 - seg.y1, seg.x2 - seg.x1) * (180 / Math.PI);
-                  
-                  const isLoco = wagon.wagon_index === 0;
-                  const color = isLoco ? "#dc2626" : "#f59e0b"; 
-                  const width = isLoco ? 32 : 28;
-                  const height = 14;
+      {/* MAIN CONTENT ROW */}
+      <div className="flex gap-4 items-start flex-1">
+        
+        {/* LEFT COLUMN: Map & Spawner */}
+        <div className={`flex flex-col gap-4 transition-all duration-300 min-w-0 ${showDebug ? "w-3/4" : "w-full"}`}>
+          
+          {/* MAP CONTAINER */}
+          <div className="overflow-auto border border-slate-300 bg-white shadow-inner relative rounded-lg" style={{ height: "600px" }}>
+            <svg width="2200" height="500" className="mt-10 ml-10">
+              <g>
+                {/* 1. DRAW TRACKS */}
+                {segments.map((seg) => {
+                  const isHovered = hoveredBlock === seg.block;
+                  const baseColor = stringToColor(seg.block);
+                  const opacity = isHovered ? 1 : 0.3; 
+                  const strokeWidth = isHovered ? TRACK_WIDTH + 2 : TRACK_WIDTH;
+                  const cx = (seg.x1 + seg.x2) / 2;
+                  const cy = (seg.y1 + seg.y2) / 2;
 
                   return (
-                    <g 
-                      key={wagon.wagon_id} 
-                      transform={`translate(${x}, ${y}) rotate(${angle})`}
-                      className="transition-transform duration-100 ease-linear"
+                    <g
+                      key={seg.id}
+                      onMouseEnter={() => setHoveredBlock(seg.block)}
+                      onMouseLeave={() => setHoveredBlock(null)}
+                      className="cursor-pointer"
+                      style={{ pointerEvents: "all" }}
                     >
-                      <rect
-                        x={-width / 2}
-                        y={-height / 2}
-                        width={width}
-                        height={height}
-                        fill={color}
-                        stroke="black"
-                        strokeWidth="1"
-                        rx={isLoco ? 4 : 2}
+                      <line x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} stroke="transparent" strokeWidth={HIT_AREA_WIDTH} />
+                      <line 
+                        x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} 
+                        stroke={baseColor} strokeOpacity={opacity} strokeWidth={strokeWidth} strokeLinecap="round" 
+                        className="pointer-events-none" 
                       />
-                      {isLoco && (
-                        <text
-                          x="0" y="4"
-                          textAnchor="middle"
-                          fontSize="9"
-                          fontWeight="bold"
-                          fill="white"
-                          style={{ pointerEvents: 'none' }}
-                        >
-                          {train.train_id}
-                        </text>
+                      <text
+                        x={cx} y={cy - 12} textAnchor="middle" 
+                        fill={isHovered ? "#000" : "#cbd5e1"} fontSize="9" fontFamily="monospace"
+                        className="select-none pointer-events-none"
+                      >
+                        {seg.id}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* 2. DRAW DIRECTION ARROWS */}
+                {DIRECTION_ARROWS.map((arrow, idx) => {
+                  const seg = segments.find((s) => s.id === arrow.sectionId);
+                  if (!seg) return null;
+
+                  const cx = (seg.x1 + seg.x2) / 2;
+                  const cy = (seg.y1 + seg.y2) / 2;
+                  const yOffset = -25; // How high above the track
+
+                  return (
+                    <g key={`arrow-${idx}`} transform={`translate(${cx}, ${cy + yOffset})`}>
+                      {arrow.direction === "right" ? (
+                        <path
+                          d="M -10 0 L 10 0 M 5 -5 L 10 0 L 5 5"
+                          stroke="#64748b"
+                          strokeWidth="2"
+                          fill="none"
+                        />
+                      ) : (
+                        <path
+                          d="M 10 0 L -10 0 M -5 -5 L -10 0 L -5 5"
+                          stroke="#64748b"
+                          strokeWidth="2"
+                          fill="none"
+                        />
                       )}
                     </g>
                   );
                 })}
+
+                {/* 3. DRAW STOPS */}
+                {stopList.map((stop) => {
+                  const seg = segments.find(s => s.id === stop.section_id);
+                  if (!seg) return null;
+                  
+                  const cx = (seg.x1 + seg.x2) / 2;
+                  const cy = (seg.y1 + seg.y2) / 2;
+
+                  return (
+                    <g key={stop.stop_id} transform={`translate(${cx}, ${cy})`}>
+                      <line x1="0" y1="0" x2="0" y2="-15" stroke="#333" strokeWidth="2" />
+                      <path d="M0,-15 L12,-10 L0,-5 Z" fill="#ef4444" stroke="#7f1d1d" strokeWidth="1" />
+                      <text x="0" y="-18" textAnchor="middle" fontSize="8" fill="#555" fontWeight="bold">
+                        {stop.stop_name || stop.stop_id}
+                      </text>
+                      <circle r="6" fill="transparent"
+                        onMouseEnter={() => setHoveredBlock(`STOP: ${stop.stop_name}`)}
+                        onMouseLeave={() => setHoveredBlock(null)}
+                      />
+                    </g>
+                  );
+                })}
+
+                {/* 4. DRAW TRAINS */}
+                {activeTrains.map((train) => (
+                  <g key={train.train_id}>
+                    {train.wagons.map((wagon) => {
+                      if (wagon.section_id === null) return null;
+
+                      const seg = segments.find((s) => s.id === wagon.section_id);
+                      if (!seg) return null; 
+
+                      const x = seg.x1 + (seg.x2 - seg.x1) * wagon.position_offset;
+                      const y = seg.y1 + (seg.y2 - seg.y1) * wagon.position_offset;
+                      const angle = Math.atan2(seg.y2 - seg.y1, seg.x2 - seg.x1) * (180 / Math.PI);
+                      
+                      const isLoco = wagon.wagon_index === 0;
+                      const color = isLoco ? "#dc2626" : "#f59e0b"; 
+                      const width = isLoco ? 32 : 28;
+                      const height = 14;
+
+                      return (
+                        <g 
+                          key={wagon.wagon_id} 
+                          transform={`translate(${x}, ${y}) rotate(${angle})`}
+                          className="transition-transform duration-100 ease-linear"
+                        >
+                          <rect
+                            x={-width / 2}
+                            y={-height / 2}
+                            width={width}
+                            height={height}
+                            fill={color}
+                            stroke="black"
+                            strokeWidth="1"
+                            rx={isLoco ? 4 : 2}
+                          />
+                          {isLoco && (
+                            <text
+                              x="0" y="4"
+                              textAnchor="middle"
+                              fontSize="9"
+                              fontWeight="bold"
+                              fill="white"
+                              style={{ pointerEvents: 'none' }}
+                            >
+                              {train.train_id}
+                            </text>
+                          )}
+                        </g>
+                      );
+                    })}
+                  </g>
+                ))}
               </g>
-            ))}
-          </g>
-        </svg>
-      </div>
+            </svg>
+          </div>
 
-      {/* [NEW] MANUAL TRAIN SPAWN FORM */}
-      <div className="bg-white p-6 rounded shadow border border-slate-200">
-        <h3 className="text-lg font-bold text-slate-800 mb-4">Manual Train Spawner</h3>
-        <form onSubmit={handleManualSpawn} className="flex gap-4 items-end flex-wrap">
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase">Train ID</label>
-            <input 
-              name="train_id" type="number" required
-              value={spawnForm.train_id} onChange={handleFormChange}
-              className="border p-2 rounded w-24 text-sm bg-slate-50"
-            />
+          {/* MANUAL TRAIN SPAWN FORM */}
+          <div className="bg-white p-6 rounded shadow border border-slate-200">
+            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <span className="text-blue-600">✚</span> Manual Train Spawner
+            </h3>
+            <form onSubmit={handleManualSpawn} className="flex gap-4 items-end flex-wrap">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Train ID</label>
+                <input 
+                  name="train_id" type="number" required
+                  value={spawnForm.train_id} onChange={handleFormChange}
+                  className="border border-slate-300 p-2 rounded w-24 text-sm bg-slate-50 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Train Code</label>
+                <input 
+                  name="train_code" type="text" 
+                  value={spawnForm.train_code} onChange={handleFormChange}
+                  className="border border-slate-300 p-2 rounded w-32 text-sm bg-slate-50 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Type ID</label>
+                <input 
+                  name="train_type_id" type="number" 
+                  value={spawnForm.train_type_id} onChange={handleFormChange}
+                  className="border border-slate-300 p-2 rounded w-20 text-sm bg-slate-50 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Start Section</label>
+                <input 
+                  name="current_section_id" type="number" required
+                  value={spawnForm.current_section_id} onChange={handleFormChange}
+                  className="border border-slate-300 p-2 rounded w-24 text-sm bg-slate-50 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Wagons</label>
+                <input 
+                  name="num_wagons" type="number" min="1" max="10"
+                  value={spawnForm.num_wagons} onChange={handleFormChange}
+                  className="border border-slate-300 p-2 rounded w-20 text-sm bg-slate-50 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Dest. Stop ID</label>
+                <input 
+                  name="desired_stop" type="number" 
+                  value={spawnForm.desired_stop} onChange={handleFormChange}
+                  placeholder="(opt)"
+                  className="border border-slate-300 p-2 rounded w-24 text-sm bg-slate-50 focus:border-blue-500 outline-none"
+                />
+              </div>
+              <button 
+                type="submit"
+                className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded shadow-sm transition-colors text-sm"
+              >
+                SPAWN TRAIN
+              </button>
+            </form>
           </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase">Train Code</label>
-            <input 
-              name="train_code" type="text" 
-              value={spawnForm.train_code} onChange={handleFormChange}
-              className="border p-2 rounded w-32 text-sm bg-slate-50"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase">Type ID</label>
-            <input 
-              name="train_type_id" type="number" 
-              value={spawnForm.train_type_id} onChange={handleFormChange}
-              className="border p-2 rounded w-20 text-sm bg-slate-50"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase">Start Section</label>
-            <input 
-              name="current_section_id" type="number" required
-              value={spawnForm.current_section_id} onChange={handleFormChange}
-              className="border p-2 rounded w-24 text-sm bg-slate-50"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase">Wagons</label>
-            <input 
-              name="num_wagons" type="number" min="1" max="10"
-              value={spawnForm.num_wagons} onChange={handleFormChange}
-              className="border p-2 rounded w-20 text-sm bg-slate-50"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-500 uppercase">Dest. Stop ID</label>
-            <input 
-              name="desired_stop" type="number" 
-              value={spawnForm.desired_stop} onChange={handleFormChange}
-              placeholder="(opt)"
-              className="border p-2 rounded w-24 text-sm bg-slate-50"
-            />
-          </div>
-          <button 
-            type="submit"
-            className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded shadow-sm transition-colors"
-          >
-            Spawn Train
-          </button>
-        </form>
-      </div>
+        </div>
 
+        {/* RIGHT COLUMN: DEBUG PANEL (Sticky Sidebar) */}
+        {showDebug && (
+          <div className="w-1/4 bg-slate-900 rounded-lg shadow-lg flex flex-col overflow-hidden border border-slate-700 sticky top-24" style={{ height: "750px" }}>
+            <div className="p-3 bg-slate-800 border-b border-slate-700 flex justify-between items-center shrink-0">
+              <h3 className="text-green-400 font-bold font-mono text-sm">SIMULATION LOG</h3>
+              <span className={`text-xs px-2 py-0.5 rounded ${isPaused ? "bg-orange-900 text-orange-200" : "bg-green-900 text-green-200"}`}>
+                {isPaused ? "PAUSED" : "RUNNING"}
+              </span>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-xs text-slate-300">
+              {debugLogs.length === 0 && (
+                <div className="text-slate-500 italic text-center mt-10">No events logged yet...</div>
+              )}
+              {debugLogs.map((log, idx) => (
+                <div key={idx} className="border-l-2 border-slate-700 pl-3 py-1 hover:bg-slate-800/50 transition-colors">
+                  <div className="flex gap-2 text-[10px] text-slate-500 mb-0.5">
+                    <span>{log.time}</span>
+                    <span>•</span>
+                    <span>Tick {log.tick}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="text-yellow-500 font-bold whitespace-nowrap">[{log.source}]</span>
+                    <span className="text-slate-200 break-words w-full">{log.message}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+      </div>
     </div>
   );
 };
