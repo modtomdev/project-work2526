@@ -83,12 +83,14 @@ This multistack containerized application is composed by:
 4. Each wagon is strictly binded to its locomotive's movements. 
 5. To render each wagon smoothly, a "position_offset" field is passed to the frontend. This field should work in *all* conditions like diagonal travelling, backwards travelling etc.
 6. Each Connection object must have an is_active field. This field acts as a traffic light between rail_blocks (signalling block system).
-7. Each train should use a path finding algorithm to find the quickest route to the destination, continuously evaluating the section_connections availability.
+7. Each train should use a path finding algorithm to find the quickest route to the destination, continuously evaluating the section_connections availability. Reversing should be penalized.
 8. Trains can only spawn on section 0 (left spawn) or section 141 (right spawn).
 9. Trains can only despawn on section 100 (left despawn) or section 41 (right despawn).
 10. Trains only enter a rail block if they can also leave it.
 11. If a train must stop at section 31 or 129, these two stops must be approached respectively from section 30 and 128 (from the left).
 12. If a train must stop at section 213 or 301, these two stops must be approached respectively from section 214 and 302 (from the right).
+13. If two trains are "racing", the one with the higher priority_index should pass first.
+14. The loaded csv can have a desired_stop_id. If the desired_stop_id is provided, the train should target that stop, sleep for 5 seconds and then target the despawn location. if no desired_stop_id is provided then the train is transit only, targets despawn point immediately.
 
 Let's take for example the rail block 'B' composed by sections 2, 3 and 1000. 2 and 3 are horizontal sections, 1000 is a diagonal section. The explicit section connections (from_section_id, to_section_id) are: (2, 3), (2, 1000), (1000, 2), (3, 2). As we can see (3, 1000) and (1000, 3) are not available because in our visual representation of the network topology, this 2 connections are basically a V-shaped track turn.
 A train that enters the 'B' block from the 'A' block can take the section connection (2, 1000). However a train that enters the 'B' block from the 'C' block cannot take (2, 1000). Note that (3, 1000) is already not available, so no problem with that one. The strategy to avoid V-shaped turns is to use a sql table made up of: (from_section_id, to_section_id, exclude_previous_block_name). 

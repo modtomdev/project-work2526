@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS train_types (
     train_type_id SERIAL PRIMARY KEY,
     type_name VARCHAR(50) UNIQUE NOT NULL,
     priority_index INTEGER UNIQUE NOT NULL,
-    cruising_speed FLOAT NOT NULL DEFAULT 1,
+    cruising_speed FLOAT NOT NULL DEFAULT 50,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

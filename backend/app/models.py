@@ -1,76 +1,79 @@
-from pydantic import BaseModel
-from typing import Optional, List
+from typing import List, Optional
+from dataclasses import dataclass
 import datetime
 
-class Section(BaseModel):
+@dataclass
+class Section:
     section_id: int
     is_occupied: bool = False
-    # [NEW] Whitelist of section IDs allowed to enter this section.
-    # If None or Empty, all incoming connections are valid.
-    # Example: For Switch 33, set this to [34] to ban entry from 32.
-    legal_entry_from: Optional[List[int]] = None
 
-class Connection(BaseModel):
+@dataclass
+class Connection:
     from_section_id: int
     to_section_id: int
+    exclude_previous_block_name: Optional[str] = None
     is_active: bool = True
 
-class RailBlock(BaseModel):
-    block_id: int
+@dataclass
+class RailBlock:
     block_name: str
-    section_id: int
+    sections: List[Section]
+    @property
+    def is_occupied(self) -> bool:
+        return any(section.is_occupied for section in self.sections)
 
-class TrainType(BaseModel):
-    train_type_id: int
-    type_name: str
-    priority_index: int
-    cruising_speed: float  # In sections/minute
-
-class Wagon(BaseModel):
-    """Represents a single wagon. Index 0 is the Locomotive."""
-    wagon_id: int
-    train_id: int
-    wagon_index: int
-    section_id: Optional[int] = None
-    position_offset: float = 0.0
-
-class Train(BaseModel):
-    """Represents the logical train unit."""
-    train_id: int
-    train_code: str
-    train_type_id: int
-    current_section_id: int
-    position_offset: float = 0.0
-    status: str = 'Moving' 
-    num_wagons: int = 1
-    
-    # Direction state: 1 (Forward 0->1), -1 (Reverse 1->0)
-    direction: int = 1 
-    
-    desired_stop_id: Optional[int] = None 
-    wait_elapsed: float = 0.0 
-
-    wagons: List[Wagon] = []
-
-class ScheduleEntry(BaseModel):
-    stop_id: int
-    scheduled_arrival_time: Optional[datetime.datetime] = None
-    scheduled_departure_time: Optional[datetime.datetime] = None
-
-class NetworkSection(BaseModel):
-    section_id: int
-    block_name: str = "UNKNOWN"
-
-class NetworkConnection(BaseModel):
-    from_id: int
-    to_id: int
-
-class NetworkStop(BaseModel):
+@dataclass
+class Stop:
     stop_id: int
     stop_name: str
     section_id: int
 
-class NetworkResponse(BaseModel):
-    sections: List[NetworkSection]
-    connections: List[NetworkConnection]
-    stops: List[NetworkStop]
+@dataclass
+class TrainType:
+    train_type_id: int
+    type_name: str
+    priority_index: int
+    cruising_speed: float
+
+@dataclass
+class Wagon:
+    wagon_id: int
+    train_id: int
+    wagon_index: int
+    section_id: Optional[int] = None # if None, the wagon is currently out of frame
+    position_offset: float = 0.0
+
+@dataclass
+class Train:
+    train_id: int
+    train_code: str
+    train_type_id: int
+    current_section_id: int
+    num_wagons: int
+    desired_stop_id: Optional[int] = None # if None, train targets the despawn point
+    status: str = 'Moving' # the train is always moving when spawned
+    position_offset: float = 0.0
+    wait_elapsed: float = 0.0
+    previous_block_name: Optional[str] = None # tracks what block the locomotive came from 
+
+@dataclass
+class SectionDTO:
+    section_id: int
+    block_name: str = "UNKNOWN"
+
+@dataclass
+class ConnectionDTO:
+    from_id: int
+    to_id: int
+
+@dataclass
+class StopDTO:
+    stop_id: int
+    stop_name: str
+    section_id: int
+
+@dataclass
+class NetworkDTO:
+    sections: List[SectionDTO]
+    connections: List[ConnectionDTO]
+    stops: List[StopDTO]

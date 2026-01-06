@@ -1,25 +1,21 @@
+from typing import List, Optional
 import asyncio
+import asyncpg
 import uvicorn
 from fastapi.responses import HTMLResponse
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import csv
 from io import StringIO
-import asyncpg
-from typing import List, Optional
 
-from models import (
-    Train, Section, Connection, TrainType, RailBlock, 
-    NetworkResponse, NetworkSection, NetworkConnection, NetworkStop # [NEW] Import NetworkStop
-)
+from models import (Train, Section, Connection, TrainType, RailBlock, NetworkDTO, SectionDTO, ConnectionDTO, StopDTO)
 from simulation import SimulationEngine
 
-app = FastAPI(title="TrainSim V3", version="3.0")
+app = FastAPI(title="TrainSim", version="1.0.0")
 
-# --- ADDED CORS FOR REACT FRONTEND ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, replace with specific frontend URL
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -48,9 +44,10 @@ async def simulation_loop(tick_rate: int = 10):
         if engine:
             try:
                 await engine.run_tick(real_dt)
-                full_trains = await engine.get_full_state()
-                # Broadcast tick to connected clients
-                await manager.broadcast({"type": "tick", "trains": [t.model_dump() for t in full_trains]})
+                # Get trains and wagons data
+                trains_data = await engine.get_trains_with_wagons()
+                # broadcast tick to connected clients
+                await manager.broadcast({"type": "tick", "trains": trains_data})
             except Exception as e:
                 print(f"Sim Loop Error: {e}")
         await asyncio.sleep(real_dt)
@@ -58,7 +55,6 @@ async def simulation_loop(tick_rate: int = 10):
 @app.on_event("startup")
 async def startup():
     global engine, db_pool
-    # Update credentials as needed
     DB_DSN = "postgres://myuser:mypassword@db:5432/mydb"
     
     sections, connections, train_types, rail_blocks, stops = [], [], [], [], []
@@ -69,23 +65,34 @@ async def startup():
             rows = await conn.fetch("SELECT section_id FROM sections")
             sections = [Section(section_id=r['section_id']) for r in rows]
             
-            rows = await conn.fetch("SELECT from_section_id, to_section_id, is_active FROM section_connections")
+            rows = await conn.fetch("SELECT from_section_id, to_section_id, COALESCE(exclude_previous_block_name, NULL) as exclude_previous_block_name FROM section_connections")
             connections = [Connection(**dict(r)) for r in rows]
 
-            rows = await conn.fetch("SELECT * FROM train_types")
+            rows = await conn.fetch("SELECT train_type_id, type_name, priority_index, cruising_speed FROM train_types")
             train_types = [TrainType(**dict(r)) for r in rows]
 
             rows = await conn.fetch("SELECT block_id, block_name, section_id FROM rail_blocks")
-            rail_blocks = [RailBlock(**dict(r)) for r in rows]
+            # Group sections by block_name
+            blocks_dict = {}
+            for row in rows:
+                block_name = row['block_name']
+                section_id = row['section_id']
+                if block_name not in blocks_dict:
+                    blocks_dict[block_name] = []
+                blocks_dict[block_name].append(section_id)
+            
+            # Create RailBlock objects
+            rail_blocks = [
+                RailBlock(block_name=name, sections=[Section(section_id=sid) for sid in section_ids])
+                for name, section_ids in blocks_dict.items()
+            ]
 
             rows = await conn.fetch("SELECT stop_id, stop_name, section_id FROM stops")
-            stops = [dict(r) for r in rows]
-            
-            print(f"Loaded {len(sections)} sections, {len(stops)} stops.")
+            stops = [Stop(**dict(r)) for r in rows]
     except Exception as e:
         print(f"DB Error: {e}. Starting empty.")
 
-    engine = SimulationEngine(sections, connections, train_types, [], blocks=rail_blocks, stops=stops)
+    engine = SimulationEngine(sections, connections, train_types, rail_blocks, stops)
     asyncio.create_task(simulation_loop())
 
 @app.on_event("shutdown")
@@ -93,16 +100,15 @@ async def shutdown():
     if db_pool:
         await db_pool.close()
 
-@app.get("/api/network", response_model=NetworkResponse)
+@app.get("/api/network", response_model=NetworkDTO)
 async def get_network_topology():
     """
-    Returns the static network map: sections, connections, and now stops.
+    Returns the static network map: sections, connections, and stops.
     """
     if not db_pool:
-        raise HTTPException(status_code=503, detail="Database not initialized")
+        raise HTTPException(status_code=503, detail="Database not available")
 
     async with db_pool.acquire() as conn:
-        # 1. Fetch Sections
         rows_sections = await conn.fetch("""
             SELECT s.section_id, COALESCE(b.block_name, 'UNKNOWN') as block_name
             FROM sections s
@@ -110,13 +116,11 @@ async def get_network_topology():
             ORDER BY s.section_id ASC
         """)
 
-        # 2. Fetch Connections
-        rows_conns = await conn.fetch("""
+        rows_connections = await conn.fetch("""
             SELECT from_section_id, to_section_id 
             FROM section_connections
         """)
 
-        # 3. [NEW] Fetch Stops
         rows_stops = await conn.fetch("""
             SELECT stop_id, stop_name, section_id
             FROM stops
@@ -124,21 +128,22 @@ async def get_network_topology():
 
         return {
             "sections": [
-                NetworkSection(section_id=r["section_id"], block_name=r["block_name"]) 
+                SectionDTO(section_id=r["section_id"], block_name=r["block_name"]) 
                 for r in rows_sections
             ],
             "connections": [
-                NetworkConnection(from_id=r["from_section_id"], to_id=r["to_section_id"]) 
-                for r in rows_conns
+                ConnectionDTO(from_id=r["from_section_id"], to_id=r["to_section_id"]) 
+                for r in rows_connections
             ],
             "stops": [
-                NetworkStop(**dict(r)) for r in rows_stops
+                StopDTO(stop_id=r["stop_id"], stop_name=r["stop_name"], section_id=r["section_id"])
+                for r in rows_stops
             ]
         }
 
 @app.post("/api/v1/load_trains")
 async def api_load_trains(file: UploadFile = File(...)):
-    """CSV: train_id, train_code, train_type_id, current_section_id, num_wagons, desired_stop"""
+    """Expected CSV structure: train_id, train_code, train_type_id, current_section_id, num_wagons, desired_stop_id"""
     if not engine: raise HTTPException(503, "Engine not ready")
     
     content = await file.read()
@@ -146,7 +151,7 @@ async def api_load_trains(file: UploadFile = File(...)):
     
     new_trains = []
     for row in reader:
-        d_stop = row.get('desired_stop')
+        d_stop = row.get('desired_stop_id')
         final_stop_id = int(d_stop) if d_stop and d_stop.strip() else None
 
         new_trains.append(Train(
@@ -154,13 +159,13 @@ async def api_load_trains(file: UploadFile = File(...)):
             train_code=row['train_code'],
             train_type_id=int(row['train_type_id']),
             current_section_id=int(row['current_section_id']),
-            num_wagons=int(row.get('num_wagons', 1)),
+            num_wagons=int(row.get('num_wagons')),
             desired_stop_id=final_stop_id,
             status='Moving'
         ))
     
     await engine.add_trains(new_trains)
-    return {"added": len(new_trains)}
+    return {"Added": len(new_trains)}
 
 @app.delete("/api/v1/trains")
 async def clear_all_trains():
@@ -168,17 +173,17 @@ async def clear_all_trains():
     if not engine: 
         raise HTTPException(status_code=503, detail="Engine not ready")
     
-    # Acquire lock to safely modify state while simulation loop is running
+    # safely modify state while simulation loop is running
     async with engine.lock:
         engine.trains.clear()
         engine.wagons.clear()
         engine.train_wagons.clear()
         engine.train_history.clear()
-        
-        # Reset track occupancy
+
+        # reset track occupancy
         engine._update_section_occupancy()
         
-    return {"message": "All trains cleared", "count": 0}
+    return {"message": "All trains cleared"}
 
 @app.websocket("/ws/traffic")
 async def ws_traffic(websocket: WebSocket):
