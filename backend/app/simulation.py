@@ -414,55 +414,66 @@ class SimulationEngine:
         """Execute one simulation tick."""
         async with self.lock:
             occupied_blocks = self._get_occupied_blocks()
+            print(f"\n{'='*60} TICK START dt={dt:.4f} {'='*60}")
+            print(f"Occupied blocks: {occupied_blocks}")
             
             for train in list(self.trains.values()):
+                print(f"\n>>> Train {train.train_id} ({train.train_code})")
+                print(f"    Status={train.status}, Section={train.current_section_id}, Offset={train.position_offset:.4f}")
+                print(f"    PrevBlock={train.previous_block_name}, DesiredStop={train.desired_stop_id}")
+                
                 # Handle stopping state
                 if train.status == 'Stopping':
                     train.wait_elapsed += dt
+                    print(f"    [STOPPING] waited {train.wait_elapsed:.2f}s / {self.STOP_DURATION}s")
                     if train.wait_elapsed >= self.STOP_DURATION:
                         train.status = 'Moving'
                         train.desired_stop_id = None
                         train.wait_elapsed = 0.0
+                        print(f"    -> Status changed to MOVING")
                     continue
                 
                 if train.status != 'Moving':
+                    print(f"    [SKIP] Status is {train.status}")
                     continue
                 
                 # Get train speed
                 train_type = self.train_types.get(train.train_type_id)
                 if not train_type:
-                    print(f"DEBUG: Train {train.train_id} - No train_type found for type_id {train.train_type_id}")
+                    print(f"    [ERROR] No train_type for type_id={train.train_type_id}")
                     continue
                 
                 # Calculate movement
                 speed_units_per_second = train_type.cruising_speed / 60.0
                 move_amount = speed_units_per_second * dt
-                print(f"DEBUG: Train {train.train_id} - speed={train_type.cruising_speed}, move_amount={move_amount:.4f}")
+                print(f"    Speed: {train_type.cruising_speed} km/h, move: {move_amount:.4f} units")
                 
                 # Get wagons
                 wagon_ids = self.train_wagons.get(train.train_id, [])
                 if not wagon_ids:
-                    print(f"DEBUG: Train {train.train_id} - No wagons found! train_wagons keys: {list(self.train_wagons.keys())}")
+                    print(f"    [ERROR] No wagons!")
                     continue
                 
                 head_wagon = self.wagons[wagon_ids[0]]
                 history = self.train_history[train.train_id]
                 
-                print(f"DEBUG: Train {train.train_id} - head_wagon at section {head_wagon.section_id}, offset={head_wagon.position_offset:.4f}")
+                print(f"    Head: sec={head_wagon.section_id}, offset={head_wagon.position_offset:.4f}, {len(wagon_ids)} wagons")
+                print(f"    History: {list(history)}")
                 
                 # Determine current direction
                 prev_section = history[0] if history and len(history) > 0 else None
                 current_direction = 1 if prev_section is None or head_wagon.section_id > prev_section else -1
-                print(f"DEBUG: Train {train.train_id} - prev_section={prev_section}, current_direction={current_direction}")
+                print(f"    PrevSec={prev_section}, Dir={current_direction}")
                 
                 # Check if train will cross section boundary
                 will_cross = False
-                if current_direction == 1 and head_wagon.position_offset + move_amount >= 1.0:
+                new_offset = head_wagon.position_offset + move_amount * current_direction
+                if current_direction == 1 and new_offset >= 1.0:
                     will_cross = True
-                    print(f"DEBUG: Train {train.train_id} - Will cross (forward)")
-                elif current_direction == -1 and head_wagon.position_offset + move_amount <= 0.0:
+                    print(f"    [CROSS FWD] {head_wagon.position_offset:.4f} -> {new_offset:.4f} >= 1.0")
+                elif current_direction == -1 and new_offset <= 0.0:
                     will_cross = True
-                    print(f"DEBUG: Train {train.train_id} - Will cross (backward)")
+                    print(f"    [CROSS BWD] {head_wagon.position_offset:.4f} -> {new_offset:.4f} <= 0.0")
                 
                 # Lookahead: find next section if crossing
                 next_section = None
@@ -473,16 +484,15 @@ class SimulationEngine:
                         occupied_blocks,
                         prev_section
                     )
-                    print(f"DEBUG: Train {train.train_id} - Lookahead: next_section={next_section}")
-                    
                     if next_section is None:
-                        # Can't move forward, stop here
-                        print(f"DEBUG: Train {train.train_id} - Can't cross, blocking movement")
+                        print(f"    [BLOCKED] No path found")
                         move_amount = 0
+                    else:
+                        print(f"    [PATH] -> {next_section}")
                 
                 # Apply movement
                 if move_amount > 0:
-                    print(f"DEBUG: Train {train.train_id} - Applying movement: {move_amount:.4f}")
+                    print(f"    [MOVE] {move_amount:.4f}")
                     head_wagon.position_offset += current_direction * move_amount
                     head_wagon.position_offset += current_direction * move_amount
                     
